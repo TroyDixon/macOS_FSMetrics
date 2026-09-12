@@ -27,6 +27,9 @@ public enum MetricKind: String, CaseIterable, Codable, Sendable {
     case usedBytes = "capacity.used_bytes"
     case freeBytes = "capacity.free_bytes"
     case usedPct = "capacity.used_pct"
+    case containerTotalBytes = "capacity.container_total_bytes"
+    case containerAvailableBytes = "capacity.container_available_bytes"
+    case containerUsedPct = "capacity.container_used_pct"
     case userBytes = "capacity.user_bytes"
     case throughputGbps = "perf.throughput_gbps"
     case transfersPerSec = "perf.transfers_per_sec"
@@ -40,9 +43,10 @@ public enum MetricKind: String, CaseIterable, Codable, Sendable {
         switch self {
         case .smartOK, .writable, .nvmeSmartOK, .nfsMountOK, .pnfsEnabled:
             return .bool
-        case .totalBytes, .usedBytes, .freeBytes, .userBytes:
+        case .totalBytes, .usedBytes, .freeBytes, .containerTotalBytes,
+             .containerAvailableBytes, .userBytes:
             return .bytes
-        case .usedPct:
+        case .usedPct, .containerUsedPct:
             return .pct
         case .throughputGbps:
             return .gbps
@@ -59,7 +63,9 @@ public enum MetricKind: String, CaseIterable, Codable, Sendable {
         switch self {
         case .smartOK, .writable, .nvmeSmartOK:
             return "health"
-        case .totalBytes, .usedBytes, .freeBytes, .usedPct, .userBytes:
+        case .totalBytes, .usedBytes, .freeBytes, .usedPct,
+             .containerTotalBytes, .containerAvailableBytes, .containerUsedPct,
+             .userBytes:
             return "capacity"
         case .throughputGbps, .transfersPerSec, .kbPerTransfer:
             return "perf"

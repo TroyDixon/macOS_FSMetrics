@@ -46,6 +46,10 @@ struct VolumeSummary: Identifiable, Sendable, Equatable {
     var usedBytes: Double?
     var totalBytes: Double?
     var freeBytes: Double?
+    var container: String?
+    var containerTotalBytes: Double?
+    var containerAvailableBytes: Double?
+    var containerUsedPct: Double?
     var smartOK: Bool?
     var writable: Bool?
     var throughputGbps: Double?
@@ -61,6 +65,10 @@ struct VolumeSummary: Identifiable, Sendable, Equatable {
         usedBytes: Double? = nil,
         totalBytes: Double? = nil,
         freeBytes: Double? = nil,
+        container: String? = nil,
+        containerTotalBytes: Double? = nil,
+        containerAvailableBytes: Double? = nil,
+        containerUsedPct: Double? = nil,
         smartOK: Bool? = nil,
         writable: Bool? = nil,
         throughputGbps: Double? = nil,
@@ -73,6 +81,10 @@ struct VolumeSummary: Identifiable, Sendable, Equatable {
         self.usedBytes = usedBytes
         self.totalBytes = totalBytes
         self.freeBytes = freeBytes
+        self.container = container
+        self.containerTotalBytes = containerTotalBytes
+        self.containerAvailableBytes = containerAvailableBytes
+        self.containerUsedPct = containerUsedPct
         self.smartOK = smartOK
         self.writable = writable
         self.throughputGbps = throughputGbps
@@ -81,9 +93,9 @@ struct VolumeSummary: Identifiable, Sendable, Equatable {
 
     /// Capacity severity from the configured thresholds (never hard-coded).
     func capacitySeverity(thresholds: AlertThresholds) -> StatusLevel {
-        guard let usedPct else { return .none }
-        if usedPct >= thresholds.capacityPctCrit { return .critical }
-        if usedPct >= thresholds.capacityPctWarn { return .warning }
+        guard let capacityPct = containerUsedPct ?? usedPct else { return .none }
+        if capacityPct >= thresholds.capacityPctCrit { return .critical }
+        if capacityPct >= thresholds.capacityPctWarn { return .warning }
         return .ok
     }
 
@@ -289,6 +301,9 @@ enum DashboardLoader {
             let total = try store.latest(of: .totalBytes, volume: path)
             let used = try store.latest(of: .usedBytes, volume: path)
             let free = try store.latest(of: .freeBytes, volume: path)
+            let containerTotal = try store.latest(of: .containerTotalBytes, volume: path)
+            let containerAvailable = try store.latest(of: .containerAvailableBytes, volume: path)
+            let containerUsedPct = try store.latest(of: .containerUsedPct, volume: path)
             let smart = try store.latest(of: .smartOK, volume: path)
             let writable = try store.latest(of: .writable, volume: path)
             let throughput = try store.latest(of: .throughputGbps, volume: path)
@@ -308,6 +323,12 @@ enum DashboardLoader {
                 usedBytes: used?.value,
                 totalBytes: total?.value,
                 freeBytes: free?.value,
+                container: containerUsedPct?.username
+                    ?? containerTotal?.username
+                    ?? containerAvailable?.username,
+                containerTotalBytes: containerTotal?.value,
+                containerAvailableBytes: containerAvailable?.value,
+                containerUsedPct: containerUsedPct?.value,
                 smartOK: smart.map { $0.value != 0 },
                 writable: writable.map { $0.value != 0 },
                 throughputGbps: throughput?.value,

@@ -59,12 +59,13 @@ extension FSMetricsCLI {
     static func makeService(settings: Settings, store: any MetricStore) -> CollectorService {
         let runner = ProcessCommandRunner()
         let probe = DiskUtilProbe(commands: runner)
+        let capacity = SystemCapacitySource()
 
         var collectors: [any Collector] = []
         var capacityCollectors: [any Collector] = []
 
         for volume in settings.volumes {
-            collectors.append(HealthCollector(volumePath: volume.path, probe: probe))
+            collectors.append(HealthCollector(volumePath: volume.path, probe: probe, capacity: capacity))
 
             let diskID = (try? probe.diskInfo(at: volume.path))?.preferredDiskID ?? "disk0"
             collectors.append(PerformanceCollector(

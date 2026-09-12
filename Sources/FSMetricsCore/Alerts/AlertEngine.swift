@@ -40,13 +40,25 @@ public struct AlertEngine: Sendable {
     private func capacityEvents(
         store: any MetricQuery, host: String, volume: String, now: Date
     ) throws -> [AlertEvent] {
-        guard let sample = try store.latest(of: .usedPct, volume: volume) else { return [] }
+        let containerSample = try store.latest(of: .containerUsedPct, volume: volume)
+        let sample: Sample
+        if let containerSample {
+            sample = containerSample
+        } else {
+            guard let volumeSample = try store.latest(of: .usedPct, volume: volume) else {
+                return []
+            }
+            sample = volumeSample
+        }
         let pct = sample.value
+        let subject = containerSample.map {
+            "\(volume): APFS container \($0.username ?? "unknown")"
+        } ?? volume
         if pct >= thresholds.capacityPctCrit {
             return [AlertEvent(
                 severity: .critical,
                 category: "capacity",
-                message: "\(volume) is \(Self.oneDecimal(pct))% full (>= \(Self.plain(thresholds.capacityPctCrit))% critical threshold)",
+                message: "\(subject) is \(Self.oneDecimal(pct))% full (>= \(Self.plain(thresholds.capacityPctCrit))% critical threshold)",
                 host: host,
                 volume: volume,
                 ts: now
@@ -56,7 +68,7 @@ public struct AlertEngine: Sendable {
             return [AlertEvent(
                 severity: .warning,
                 category: "capacity",
-                message: "\(volume) is \(Self.oneDecimal(pct))% full (>= \(Self.plain(thresholds.capacityPctWarn))% warn threshold)",
+                message: "\(subject) is \(Self.oneDecimal(pct))% full (>= \(Self.plain(thresholds.capacityPctWarn))% warn threshold)",
                 host: host,
                 volume: volume,
                 ts: now

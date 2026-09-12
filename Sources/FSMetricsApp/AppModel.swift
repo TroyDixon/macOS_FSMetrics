@@ -231,13 +231,11 @@ final class AppModel {
     /// Capacity summed across every monitored volume, so the headline number
     /// describes the host rather than whichever volume happens to be picked.
     var fleetTotalBytes: Double? {
-        let values = volumes.compactMap(\.totalBytes)
-        return values.isEmpty ? nil : values.reduce(0, +)
+        fleetCapacity.totalBytes
     }
 
     var fleetUsedBytes: Double? {
-        let values = volumes.compactMap(\.displayUsedBytes)
-        return values.isEmpty ? nil : values.reduce(0, +)
+        fleetCapacity.usedBytes
     }
 
     var fleetFreeBytes: Double? {
@@ -248,6 +246,18 @@ final class AppModel {
     var fleetUsedPct: Double? {
         guard let fleetTotalBytes, fleetTotalBytes > 0, let fleetUsedBytes else { return nil }
         return fleetUsedBytes / fleetTotalBytes * 100
+    }
+
+    private var fleetCapacity: CapacityRollupResult {
+        CapacityRollup.fleet(volumes.map { volume in
+            CapacityRollupInput(
+                totalBytes: volume.totalBytes,
+                usedBytes: volume.displayUsedBytes,
+                container: volume.container,
+                containerTotalBytes: volume.containerTotalBytes,
+                containerAvailableBytes: volume.containerAvailableBytes
+            )
+        })
     }
 
     var fleetCapacitySeverity: StatusLevel {
@@ -379,6 +389,7 @@ struct CollectorWiring: Sendable {
     init(settings: Settings) {
         let commands = ProcessCommandRunner()
         let probe = DiskUtilProbe(commands: commands)
+        let capacity = SystemCapacitySource()
         let blockStats = IOKitBlockStats()
         let nfsTool = NfsstatTool(commands: commands)
         let scanner = FileManagerScanner()
@@ -390,7 +401,7 @@ struct CollectorWiring: Sendable {
         for volume in settings.volumes {
             volumes.append((path: volume.path, kind: volume.kind, label: volume.label))
 
-            pollCollectors.append(HealthCollector(volumePath: volume.path, probe: probe))
+            pollCollectors.append(HealthCollector(volumePath: volume.path, probe: probe, capacity: capacity))
 
             // Resolve the whole physical disk backing the volume (`disk0` for
             // an APFS container on `disk0s2`): `iostat` rejects synthesized
