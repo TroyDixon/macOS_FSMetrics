@@ -102,9 +102,57 @@ final class SchedulerTests: XCTestCase {
         wait(for: [ran], timeout: 2)
         scheduler.stop()
         lock.lock(); let samples = contexts; lock.unlock()
+        guard samples.count >= 2 else { return XCTFail("Expected two runs, got \(samples.count)") }
         XCTAssertLessThan(samples[0].observed.timeIntervalSince(startedAt), 0.1)
         XCTAssertEqual(samples[1].ts, samples[0].ts + 1)
         XCTAssertGreaterThan(samples[1].monotonicNanos, samples[0].monotonicNanos)
         XCTAssertGreaterThanOrEqual(samples[1].observed.timeIntervalSince1970 - Double(samples[1].ts), 0.04)
+    }
+    func testTimestampsFollowWallClockAcrossSleepAndBackwardStep() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let db = try Database(path: directory.appendingPathComponent("test.db").path)
+        defer { try? db.close() }
+        let lock = NSLock()
+        var offset: TimeInterval = 0
+        var stamps: [Int64] = []
+        func count() -> Int { lock.lock(); defer { lock.unlock() }; return stamps.count }
+        func last() -> Int64 { lock.lock(); defer { lock.unlock() }; return stamps.last ?? 0 }
+        let fake = Fake("jumpy", interval: 0.05) { context in
+            lock.lock(); stamps.append(context.ts); lock.unlock()
+            return .ok
+        }
+        let registry = SamplerRegistry(); registry.register(fake)
+        let scheduler = Scheduler(registry: registry, db: db, log: Logger(level: .error), statuses: SamplerStatusStore()) {
+            lock.lock(); defer { lock.unlock() }
+            return Date().timeIntervalSince1970 + offset
+        }
+        scheduler.start()
+        defer { scheduler.stop() }
+        XCTAssertTrue(waitUntil { count() >= 3 })
+
+        // Simulated hour of sleep: the next stamps must jump with the wall clock.
+        let beforeSleep = last()
+        let countBeforeSleep = count()
+        lock.lock(); offset += 3600; lock.unlock()
+        XCTAssertTrue(waitUntil { count() >= countBeforeSleep + 2 })
+        XCTAssertGreaterThanOrEqual(last(), beforeSleep + 3600)
+
+        // Clock stepped back an hour behind real time: no new samples, no repeats.
+        lock.lock(); offset -= 7200; lock.unlock()
+        let countAtStep = count()
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertLessThanOrEqual(count(), countAtStep + 1) // allow one run already in flight
+
+        lock.lock(); let all = stamps; lock.unlock()
+        XCTAssertTrue(zip(all, all.dropFirst()).allSatisfy { $0 <= $1 }, "Timestamps went backwards: \(all)")
+    }
+    private func waitUntil(timeout: TimeInterval = 2, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() > deadline { return false }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return true
     }
 }

@@ -27,7 +27,9 @@ without edits to the package manifest, main, or core registration.
   time in `ctx.monotonicNanos`. Use monotonic deltas for rates and latency; wall
   time can jump. Return `.ok`, `.degraded(detail)`, or throw. Use
   `statuses.snapshot()` when implementing health. Each sampler runs immediately
-  at startup, then at interval boundaries plus 50 ms.
+  at startup, then at interval boundaries plus 50 ms. `ctx.ts` is read from the
+  wall clock on every tick, so it tracks real time after system sleep; it never
+  repeats or goes backwards (ticks are skipped if the clock steps back).
 - Routes use `try Response.json(.object(...))`; missing values must be `.null`.
   Use `Response.error` for expected API errors; thrown handler errors become
   a generic `internal` 500 response, with the actual error logged.

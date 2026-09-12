@@ -7,24 +7,32 @@ public final class Scheduler {
         let queue: DispatchQueue
         var timer: DispatchSourceTimer?
         var busy = false // Accessed only on control.
-        var nextPlannedWallTime: TimeInterval = 0
+        var lastBoundary = -Double.infinity // Accessed only on control.
         init(_ sampler: Sampler) {
             self.sampler = sampler
             queue = DispatchQueue(label: "fsmond.sampler.\(sampler.name)")
         }
     }
+    /// Ticks fire this far past each interval boundary so a slightly early or
+    /// late fire still stamps the intended boundary.
+    static let cushion: TimeInterval = 0.050
     private let control = DispatchQueue(label: "fsmond.scheduler")
     private let pending = DispatchGroup()
     private let entries: [Entry]
     private let db: Database
     private let log: Logger
+    private let wallClock: () -> TimeInterval
     public let statuses: SamplerStatusStore
     private var started = false
     private var stopped = false
 
-    public init(registry: SamplerRegistry, db: Database, log: Logger, statuses: SamplerStatusStore = SamplerStatusStore()) {
+    public convenience init(registry: SamplerRegistry, db: Database, log: Logger, statuses: SamplerStatusStore = SamplerStatusStore()) {
+        self.init(registry: registry, db: db, log: log, statuses: statuses, wallClock: { Date().timeIntervalSince1970 })
+    }
+    /// `wallClock` is injectable so tests can simulate sleep and clock steps.
+    init(registry: SamplerRegistry, db: Database, log: Logger, statuses: SamplerStatusStore, wallClock: @escaping () -> TimeInterval) {
         entries = registry.samplers.map(Entry.init)
-        self.db = db; self.log = log; self.statuses = statuses
+        self.db = db; self.log = log; self.statuses = statuses; self.wallClock = wallClock
         registry.samplers.forEach { statuses.register($0) }
     }
     public func start() {
@@ -32,25 +40,37 @@ public final class Scheduler {
             guard !started && !stopped else { return }
             started = true
             for entry in entries {
-                let now = Date().timeIntervalSince1970
-                trigger(entry, ts: Int64(now.rounded(.down)))
-
-                let interval = entry.sampler.interval
-                let boundary = (floor(now / interval) + 1) * interval
-                entry.nextPlannedWallTime = boundary
                 let timer = DispatchSource.makeTimerSource(queue: control)
-                let delay = max(0, boundary + 0.050 - now)
-                timer.schedule(deadline: .now() + delay, repeating: interval)
                 timer.setEventHandler { [weak self, weak entry] in
                     guard let self, let entry, !self.stopped else { return }
-                    let plannedTS = Int64(entry.nextPlannedWallTime.rounded(.down))
-                    entry.nextPlannedWallTime += entry.sampler.interval
-                    self.trigger(entry, ts: plannedTS)
+                    self.tick(entry)
                 }
                 entry.timer = timer
+                tick(entry) // Immediate first run; also arms the timer.
                 timer.resume()
             }
         }
+    }
+    /// Runs on control. The timestamp is derived from the wall clock on every
+    /// tick (never accumulated), so it cannot fall behind real time after system
+    /// sleep, a stalled queue, or coalesced timer fires. Timestamps strictly
+    /// increase: if the wall clock steps backwards, ticks are skipped until it
+    /// passes the last stored boundary.
+    private func tick(_ entry: Entry) {
+        let interval = entry.sampler.interval
+        let now = wallClock()
+        // First run stamps the current second; later runs stamp the interval boundary.
+        let boundary = entry.lastBoundary == -.infinity ? floor(now) : floor(now / interval) * interval
+        if boundary > entry.lastBoundary {
+            entry.lastBoundary = boundary
+            trigger(entry, ts: Int64(boundary))
+        } else {
+            log.debug("Skipping tick for \(entry.sampler.name): wall clock is not past the previous sample")
+        }
+        // One-shot wall-clock timer re-armed each tick: wall time keeps counting
+        // during sleep, and re-arming from the clock keeps ticks aligned.
+        let next = (floor(now / interval) + 1) * interval + Self.cushion
+        entry.timer?.schedule(wallDeadline: .now() + max(0, next - now))
     }
     private func trigger(_ entry: Entry, ts: Int64) {
         guard !entry.busy else {
