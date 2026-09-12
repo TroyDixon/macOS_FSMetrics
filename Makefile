@@ -13,8 +13,10 @@ clean:
 	swift package clean
 	rm -rf .build data
 
-install: build
+install:
 	@test "$$(id -u)" = 0 || (echo "Run sudo make install"; exit 1)
+	@test -x .build/release/fsmond || (echo "Missing .build/release/fsmond; run make build before sudo make install"; exit 1)
+	-launchctl bootout system /Library/LaunchDaemons/com.hackwestex.fsmond.plist
 	install -d -m 755 /usr/local/bin
 	install -d -m 700 /var/db/fsmond
 	install -m 755 .build/release/fsmond /usr/local/bin/fsmond
