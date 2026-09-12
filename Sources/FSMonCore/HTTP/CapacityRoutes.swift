@@ -3,10 +3,11 @@ import Foundation
 public enum CapacityRoutes {
     public static func register(on router: Router, db: Database, inventory: MountInventoryStore,
                                 statuses: SamplerStatusStore) {
-        let started = ProcessInfo.processInfo.systemUptime
+        // CLOCK_MONOTONIC_RAW keeps counting during system sleep; systemUptime does not.
+        let started = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)
         register(on: router, db: db, inventory: inventory, statuses: statuses,
                  now: { Int64(Date().timeIntervalSince1970) },
-                 uptime: { Int64(max(0, ProcessInfo.processInfo.systemUptime - started)) })
+                 uptime: { Int64((clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) - started) / 1_000_000_000) })
     }
 
     static func register(on router: Router, db: Database, inventory: MountInventoryStore,
@@ -14,12 +15,14 @@ public enum CapacityRoutes {
                          uptime: @escaping () -> Int64) {
         router.get("/api/v1/health") { _ in
             let samplers = statuses.snapshot()
-            let status = samplers.contains { $0.status == "error" } ? "error" :
-                (samplers.isEmpty || samplers.contains { $0.status != "ok" } ? "degraded" : "ok")
+            // The contract's aggregate status is ok|degraded; per-sampler "error" still shows below.
+            let status = samplers.isEmpty || samplers.contains { $0.status != "ok" } ? "degraded" : "ok"
             return try .json(.object(["data": .object([
                 "status": .string(status), "uptime_seconds": .integer(uptime()), "version": .string("0.1.0"),
                 "samplers": .array(samplers.map { sampler in
-                    var fields: [String: JSON] = ["name": .string(sampler.name), "interval": .number(sampler.interval),
+                    let interval: JSON = sampler.interval.rounded() == sampler.interval
+                        ? .integer(Int64(sampler.interval)) : .number(sampler.interval)
+                    var fields: [String: JSON] = ["name": .string(sampler.name), "interval": interval,
                                                   "last_run": sampler.lastRun.json, "status": .string(sampler.status)]
                     // Contract health example omits detail when there is no diagnostic.
                     if let detail = sampler.detail { fields["detail"] = .string(detail) }
@@ -52,9 +55,12 @@ public enum CapacityRoutes {
                 }
                 let rows = try connection.query("""
                     SELECT (ts / ?) * ? AS bucket,
-                      AVG(total_bytes) AS total_bytes, AVG(free_bytes) AS free_bytes,
-                      AVG(available_bytes) AS available_bytes, AVG(used_bytes) AS used_bytes,
-                      AVG(inodes_total) AS inodes_total, AVG(inodes_free) AS inodes_free,
+                      CAST(ROUND(AVG(total_bytes)) AS INTEGER) AS total_bytes,
+                      CAST(ROUND(AVG(free_bytes)) AS INTEGER) AS free_bytes,
+                      CAST(ROUND(AVG(available_bytes)) AS INTEGER) AS available_bytes,
+                      CAST(ROUND(AVG(used_bytes)) AS INTEGER) AS used_bytes,
+                      CAST(ROUND(AVG(inodes_total)) AS INTEGER) AS inodes_total,
+                      CAST(ROUND(AVG(inodes_free)) AS INTEGER) AS inodes_free,
                       AVG(CASE WHEN used_bytes * 1.0 + available_bytes > 0
                         THEN used_bytes * 100.0 / (used_bytes * 1.0 + available_bytes) END) AS used_pct
                     FROM capacity_samples WHERE mount_id = ? AND ts >= ? AND ts < ?

@@ -27,8 +27,9 @@ also distinguishes per-volume use from total minus free on space-sharing volumes
 Remote mounts use only cached numbers; neither `statfs`, `getattrlist`, nor
 Foundation volume-resource lookups are called on them. A missing `MNT_LOCAL` flag
 or a known network type (`nfs`, `smbfs`, `webdav`) selects this path. Their capacity
-can be stale; the capacity sampler reports degraded with a diagnostic stating this.
-It does not claim to detect whether the remote server is responding.
+can be stale. That is the expected remote path, so it is logged at debug level and
+does not degrade health (a demo with an NFS mount must still report `ok`). It does
+not claim to detect whether the remote server is responding; that is B's NFS sampler.
 
 A failed local refresh skips that mount's new capacity row, preserving its prior
 reading and timestamp. Unsupported volume attributes fall back to total minus
@@ -77,7 +78,8 @@ the shared API contract, not edits to `INTERFACE_CONTRACT.md`, which C owns.
 4. **Capacity series shape.** `/mounts/{id}/capacity` returns `series_id`, `step`,
    `from`, `to`, `timestamps`, and seven equal-length arrays: `total_bytes`,
    `free_bytes`, `available_bytes`, `used_bytes`, `inodes_total`, `inodes_free`,
-   `used_pct`. Each nonempty bucket is an arithmetic mean; missing buckets and
+   `used_pct`. Each nonempty bucket is an arithmetic mean; byte and inode means are
+   rounded to whole integers, `used_pct` stays decimal. Missing buckets and
    unavailable inode values are null. Known detached mounts still support history.
 5. **Range rules and limits.** Samples are selected in `[from, to)`. `to` defaults
    to now and `from` to one hour before `to`; `step` defaults to 60 seconds. Epoch
@@ -91,7 +93,9 @@ the shared API contract, not edits to `INTERFACE_CONTRACT.md`, which C owns.
    `name`, `last_run`, `interval`, `status`; `detail` appears only when diagnostic
    text exists, as in the contract example. This clarifies the example's exception
    to the general never-omit-missing-data rule. Before first completion, last_run
-   is null. Aggregate status prioritizes error, then degraded, then ok. Both
+   is null. `interval` is integer seconds. Aggregate `status` is only `ok` or
+   `degraded` (degraded if any sampler is not ok); an individual sampler may report
+   `error`. `uptime_seconds` includes time the Mac spent asleep. Both
    `capacity` and `retention`, plus B's registered samplers, appear in health.
 
 Inventory objects include `id`, `mount_point`, `device_node`, `fs_type`,
@@ -126,8 +130,8 @@ Example series with an empty second bucket:
   "data": {
     "series_id": "mount:1", "step": 60, "from": 1773360000, "to": 1773360120,
     "timestamps": [1773360000, 1773360060],
-    "total_bytes": [1000000000.0, null], "free_bytes": [600000000.0, null],
-    "available_bytes": [600000000.0, null], "used_bytes": [150000000.0, null],
+    "total_bytes": [1000000000, null], "free_bytes": [600000000, null],
+    "available_bytes": [600000000, null], "used_bytes": [150000000, null],
     "inodes_total": [null, null], "inodes_free": [null, null], "used_pct": [20.0, null]
   },
   "meta": {"generated_at": 1773360120}

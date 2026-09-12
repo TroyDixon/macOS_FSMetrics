@@ -65,7 +65,9 @@ public final class CapacitySampler: Sampler {
             if cached.isRemote {
                 // No path lookups, Foundation resource queries, statfs, or
                 // getattrlist here: even a metadata lookup may block on a server.
-                issues.append("Cached remote capacity: \(cached.path)")
+                // Cached numbers are the normal path for remote mounts, not a fault,
+                // so they must not hold health at degraded (the demo has NFS).
+                ctx.log.debug("capacity: cached kernel numbers for remote mount \(cached.path)")
                 do { capacity = try CapacityReading(mount: cached, attributes: nil) }
                 catch { issues.append(String(describing: error)) }
             } else {

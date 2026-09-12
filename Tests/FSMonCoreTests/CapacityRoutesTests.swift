@@ -53,6 +53,10 @@ final class CapacityRoutesTests: XCTestCase {
         let used = try XCTUnwrap(series["used_bytes"] as? [Any])
         XCTAssertEqual(used[0] as? Double, 200)
         XCTAssertTrue(used[1] is NSNull); XCTAssertTrue(used[2] is NSNull)
+        // Byte means are whole bytes on the wire (200, not 200.0); percentages stay decimal.
+        let body = String(decoding: response.body, as: UTF8.self)
+        XCTAssertTrue(body.contains("\"used_bytes\":[200,null,null]"), body)
+        XCTAssertTrue(body.contains("\"total_bytes\":[4096000,null,null]"), body)
         XCTAssertEqual(series["series_id"] as? String, "mount:\(id)")
         // Retained dimension rows permit history after a volume is detached.
         f.source.mounts = []; _ = try f.collect(305)
@@ -92,8 +96,13 @@ final class CapacityRoutesTests: XCTestCase {
         data = try XCTUnwrap(try object(router.handle(Request(method: "GET", path: "/api/v1/health")))["data"] as? [String: Any])
         XCTAssertEqual(data["status"] as? String, "ok")
         XCTAssertEqual(Set((data["samplers"] as! [[String: Any]])[0].keys), ["name", "last_run", "interval", "status"])
+        // Contract example shows integer intervals; check the wire text, since JSON parsing hides 5 vs 5.0.
+        let okBody = String(decoding: router.handle(Request(method: "GET", path: "/api/v1/health")).body, as: UTF8.self)
+        XCTAssertTrue(okBody.contains("\"interval\":5,"), okBody)
         f.statuses.update(name: "capacity", interval: 5, ts: 125, status: "error", detail: "failed")
         data = try XCTUnwrap(try object(router.handle(Request(method: "GET", path: "/api/v1/health")))["data"] as? [String: Any])
-        XCTAssertEqual(data["status"] as? String, "error")
+        // Aggregate stays within the contract's ok|degraded; the sampler row keeps "error".
+        XCTAssertEqual(data["status"] as? String, "degraded")
+        XCTAssertEqual((data["samplers"] as! [[String: Any]])[0]["status"] as? String, "error")
     }
 }

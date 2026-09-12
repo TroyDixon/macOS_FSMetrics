@@ -87,7 +87,10 @@ final class CapacityTests: XCTestCase {
                            testMount("/dev", fs: "devfs"), testMount("/home", fs: "autofs")]
         f.source.refreshed["/test"] = testMount(free: 550, available: 450)
         f.source.attrs["/test"] = VolumeAttributes(usedBytes: 123456, uuid: "UUID-A", name: "Test")
-        XCTAssertNotEqual(try f.collect(), .ok) // Cached remote data is explicitly degraded.
+        // Map the local APFS volume to a container so the only possible issue would come
+        // from the remote mounts: cached remote numbers are expected, not a health fault.
+        f.source.containers = ["UUID-A": ContainerIdentity(uuid: "CONTAINER-A", bsdName: "disk10")]
+        XCTAssertEqual(try f.collect(), .ok)
         XCTAssertEqual(f.source.refreshCalls, ["/test"])
         XCTAssertEqual(f.source.attributeCalls, ["/test"])
         let rows = try f.db.read { try $0.query("SELECT m.mount_point, c.* FROM mounts m JOIN capacity_samples c ON c.mount_id = m.id ORDER BY m.mount_point") }
