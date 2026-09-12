@@ -197,8 +197,8 @@ the per-UID walk over `scan_paths` (leave it off for very large or slow
 mounts). `thresholds` holds the capacity warn/critical percentages, the
 per-user growth window/threshold, the throughput-stall window, and `cooldown`
 for duplicate-alert suppression. `webhook_url` is an optional Slack-compatible
-endpoint; `simulate: true` produces synthetic samples for demos without real
-volumes.
+endpoint. `simulate` is accepted for config compatibility but no synthetic
+collector is implemented yet — it currently has no effect.
 
 ## Permissions (Full Disk Access)
 
