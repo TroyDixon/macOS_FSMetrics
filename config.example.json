@@ -1,0 +1,28 @@
+{
+  "db_path": "~/Library/Application Support/FSMetrics/metrics.sqlite",
+  "poll_interval_seconds": 15,
+  "capacity_scan_interval_seconds": 120,
+  "host_label": "my-mac",
+  "volumes": [
+    {
+      "path": "/",
+      "kind": "apfs",
+      "label": "Macintosh HD",
+      "watch_users": true,
+      "scan_paths": [
+        "/Users"
+      ]
+    }
+  ],
+  "thresholds": {
+    "capacity_pct_warn": 80.0,
+    "capacity_pct_crit": 95.0,
+    "user_growth_bytes_window": 600,
+    "user_growth_bytes_threshold": 5000000000,
+    "io_error_count_threshold": 1,
+    "throughput_stall_seconds": 120,
+    "cooldown": 3600
+  },
+  "webhook_url": null,
+  "simulate": false
+}
