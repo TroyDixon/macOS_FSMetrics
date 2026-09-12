@@ -31,15 +31,13 @@ The first build fetches dependencies, so it needs network access.
 git clone <this-repo>
 cd macos-fs-metrics
 
+# Dependencies 
 swift build
 swift test
 
 # Build and launch the app:
 Scripts/bundle.sh
 open build/FSMetrics.app
-
-# Optional: run the collector at login:
-Scripts/install-agent.sh
 ```
 
 ## Using the app
