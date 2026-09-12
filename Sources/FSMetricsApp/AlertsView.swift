@@ -1,66 +1,98 @@
 import SwiftUI
 
-/// Recent alerts: the native translation of the Flask "Recent alerts" table,
-/// with the whole row colored by severity as the Flask CSS did.
+/// Recent alerts, styled as a Grafana alert list: a severity chip per row
+/// instead of coloring the whole line, so long messages stay readable while
+/// severity still reads instantly down the left edge.
 struct AlertsPanel: View {
     let model: AppModel
 
+    private var criticalCount: Int {
+        model.alerts.filter { $0.severity == .critical }.count
+    }
+
+    private var warningCount: Int {
+        model.alerts.count - criticalCount
+    }
+
     var body: some View {
-        Panel("Recent alerts") {
+        Panel("Recent alerts", accessory: {
+            HStack(spacing: 6) {
+                if criticalCount > 0 {
+                    Badge(text: "\(criticalCount) critical", level: .critical)
+                }
+                if warningCount > 0 {
+                    Badge(text: "\(warningCount) warning", level: .warning)
+                }
+            }
+        }) {
             if model.alerts.isEmpty {
-                Text("No alerts yet")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                VStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 20))
+                        .foregroundStyle(Color.fsOK)
+                    Text("No alerts recorded")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 100)
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    alertHeader
-                    Divider()
+                VStack(spacing: 0) {
                     ForEach(model.alerts) { alert in
                         AlertRowView(alert: alert)
-                        Divider()
+                        if alert.id != model.alerts.last?.id {
+                            Divider().overlay(Color.fsPanelBorder)
+                        }
                     }
                 }
             }
         }
-    }
-
-    private var alertHeader: some View {
-        HStack(spacing: 10) {
-            Text("Time").frame(width: 90, alignment: .leading)
-            Text("Severity").frame(width: 70, alignment: .leading)
-            Text("Volume").frame(width: 180, alignment: .leading)
-            Text("Category").frame(width: 100, alignment: .leading)
-            Text("Message").frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(.vertical, 4)
     }
 }
 
 struct AlertRowView: View {
     let alert: AlertRow
 
+    private var level: StatusLevel {
+        alert.severity == .critical ? .critical : .warning
+    }
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
+            // Severity stripe: scannable down the left edge of the list.
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(level.color)
+                .frame(width: 3)
+                .frame(maxHeight: .infinity)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Badge(text: alert.severity.rawValue.uppercased(), level: level, filled: true)
+                    Text(alert.category)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                    Text(alert.volume)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Text(alert.message)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
             Text(MetricsFormat.time(alert.ts))
+                .font(.system(size: 10))
                 .monospacedDigit()
-                .frame(width: 90, alignment: .leading)
-            Text(alert.severity.rawValue.uppercased())
-                .fontWeight(.semibold)
-                .frame(width: 70, alignment: .leading)
-            Text(alert.volume)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(width: 180, alignment: .leading)
-            Text(alert.category)
-                .frame(width: 100, alignment: .leading)
-            Text(alert.message)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(.tertiary)
+                .frame(width: 78, alignment: .trailing)
         }
-        .font(.callout)
-        .foregroundStyle(alert.severity == .critical ? Color.fsCrit : Color.fsWarn)
+        .padding(.vertical, 8)
         .textSelection(.enabled)
-        .padding(.vertical, 4)
     }
 }

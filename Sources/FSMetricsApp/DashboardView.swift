@@ -2,46 +2,37 @@ import Charts
 import FSMetricsCore
 import SwiftUI
 
-// MARK: - Flask palette
-
-extension Color {
-    static let fsOK = Color(red: 63.0 / 255.0, green: 185.0 / 255.0, blue: 80.0 / 255.0)
-    static let fsWarn = Color(red: 210.0 / 255.0, green: 153.0 / 255.0, blue: 34.0 / 255.0)
-    static let fsCrit = Color(red: 248.0 / 255.0, green: 81.0 / 255.0, blue: 73.0 / 255.0)
-    static let fsAccent = Color(red: 88.0 / 255.0, green: 166.0 / 255.0, blue: 255.0 / 255.0)
-}
-
-extension StatusLevel {
-    var color: Color {
-        switch self {
-        case .none: return .secondary
-        case .ok: return .fsOK
-        case .warning: return .fsWarn
-        case .critical: return .fsCrit
-        }
-    }
-}
-
 // MARK: - Dashboard
 
-/// SwiftUI translation of the retired Flask admin page: volume cards,
-/// throughput and capacity history charts, the per-user table, and alerts.
+/// A Grafana-style operations dashboard: a stat strip of headline numbers,
+/// then collapsible rows of panels ordered by how urgently an admin needs
+/// them — overview, volumes, performance, capacity, shared storage, alerts.
+///
+/// Every panel is scoped by the single volume picker in the header, the way a
+/// Grafana template variable scopes a whole dashboard at once.
 struct DashboardView: View {
-    let model: AppModel
+    @Bindable var model: AppModel
+
+    private static let tileColumns = [GridItem(.adaptive(minimum: 190), spacing: 10)]
+    private static let chartColumns = [GridItem(.adaptive(minimum: 380), spacing: 10)]
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 20) {
                 header
+                statStrip
                 volumesSection
-                chartsSection
-                UsersPanel(model: model)
-                AlertsPanel(model: model)
+                performanceSection
+                capacitySection
+                if !model.nfs.isEmpty { sharedStorageSection }
+                alertsSection
             }
-            .padding(20)
+            .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(minWidth: 780, minHeight: 560)
+        .background(Color.fsCanvas)
+        .preferredColorScheme(.dark)
+        .frame(minWidth: 900, minHeight: 620)
         .toolbar {
             ToolbarItem {
                 Button {
@@ -53,278 +44,439 @@ struct DashboardView: View {
                 .help("Run a full collection cycle now")
             }
         }
-        .onChange(of: model.selectedThroughputVolume) {
-            Task { await model.refresh() }
-        }
-        .onChange(of: model.selectedCapacityVolume) {
-            Task { await model.refresh() }
-        }
-        .onChange(of: model.selectedUsersVolume) {
+        .onChange(of: model.selectedVolume) {
             Task { await model.refresh() }
         }
     }
+
+    // MARK: Header
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("macOS FS Metrics — Admin Dashboard")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                Text("\(model.settings.hostLabel) — local + shared volume monitoring")
-                    .font(.callout)
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("macOS FS Metrics")
+                    .font(.system(size: 17, weight: .semibold))
+                Text(model.settings.hostLabel)
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+
+            Divider().frame(height: 26)
+
+            // The Grafana "template variable" — one picker, whole dashboard.
+            HStack(spacing: 6) {
+                Text("VOLUME")
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundStyle(.secondary)
+                if model.volumeNames.isEmpty {
+                    Text("none")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Picker("Volume", selection: $model.selectedVolume) {
+                        ForEach(model.volumeNames, id: \.self) { name in
+                            Text(name).tag(name as String?)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 240)
+                }
+            }
+
             Spacer()
-            Text(model.lastRefresh.map { "last refreshed \(MetricsFormat.time($0))" } ?? "refreshing…")
-                .font(.callout)
+
+            if model.isCollecting {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            Label("Last 1 hour", systemImage: "clock")
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.fsPanel, in: RoundedRectangle(cornerRadius: 5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(Color.fsPanelBorder, lineWidth: 1)
+                )
+
+            Text(model.lastRefresh.map { MetricsFormat.time($0) } ?? "—")
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundStyle(.tertiary)
         }
     }
 
+    // MARK: Stat strip
+
+    /// The headline row. These are the numbers that have to be readable from
+    /// the back of a room, so they get the largest type on the screen.
+    private var statStrip: some View {
+        LazyVGrid(columns: Self.tileColumns, spacing: 10) {
+            StatTile(
+                title: "Capacity used",
+                value: MetricsFormat.pct(model.fleetUsedPct),
+                caption: model.fleetUsedBytes.map {
+                    "\(MetricsFormat.bytes($0)) of \(MetricsFormat.bytes(model.fleetTotalBytes))"
+                } ?? "no capacity sample",
+                level: model.fleetCapacitySeverity,
+                symbol: "internaldrive",
+                spark: model.capacityPoints,
+                sparkColor: model.fleetCapacitySeverity.color
+            )
+
+            StatTile(
+                title: "Throughput",
+                value: MetricsFormat.stat(model.focusedVolume?.throughputGbps),
+                caption: "GB/s · \(MetricsFormat.age(secondsAgo: model.focusedVolume?.throughputAgeSeconds))",
+                level: model.throughputSeverity,
+                symbol: "speedometer",
+                spark: model.throughputPoints,
+                sparkColor: .fsAccent
+            )
+
+            StatTile(
+                title: "IOPS",
+                value: MetricsFormat.count(model.latestIOPS),
+                caption: model.latestIOSizeKB.map {
+                    "transfers/s · \(MetricsFormat.stat($0, decimals: 0)) KB avg"
+                } ?? "transfers/s",
+                level: model.latestIOPS == nil ? StatusLevel.none : .ok,
+                symbol: "arrow.left.arrow.right",
+                spark: model.iopsPoints,
+                sparkColor: .fsCyan
+            )
+
+            StatTile(
+                title: "Free space",
+                value: MetricsFormat.bytes(model.fleetFreeBytes),
+                caption: "across \(model.volumes.count) volume\(model.volumes.count == 1 ? "" : "s")",
+                level: model.fleetCapacitySeverity == .critical ? .critical : StatusLevel.none,
+                symbol: "externaldrive.badge.checkmark",
+                spark: [],
+                sparkColor: .fsPurple
+            )
+
+            StatTile(
+                title: "Health",
+                value: "\(model.healthyVolumeCount)/\(model.volumes.count)",
+                caption: model.healthSeverity == .critical ? "volume needs attention" : "volumes healthy",
+                level: model.healthSeverity,
+                symbol: "heart.text.square",
+                spark: []
+            )
+
+            StatTile(
+                title: "Active alerts",
+                value: "\(model.activeAlerts.count)",
+                caption: model.activeAlerts.isEmpty ? "nothing firing" : "in the alert window",
+                level: model.activeAlertSeverity,
+                symbol: "bell",
+                spark: []
+            )
+        }
+    }
+
+    // MARK: Volumes
+
     private var volumesSection: some View {
-        Panel("Volumes") {
-            if model.volumes.isEmpty {
-                Text("No data yet — run a collection cycle.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 360), spacing: 12)],
-                    spacing: 12
-                ) {
-                    ForEach(model.volumes) { volume in
-                        VolumeCard(volume: volume, thresholds: model.settings.thresholds)
+        SectionRow("Volumes", subtitle: "capacity and health per mount") {
+            Panel("Volume status") {
+                if model.volumes.isEmpty {
+                    Text("No data yet — run a collection cycle.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 80)
+                } else {
+                    VStack(spacing: 14) {
+                        // Radial gauges read fastest when several volumes sit
+                        // side by side.
+                        HStack(alignment: .top, spacing: 8) {
+                            ForEach(model.volumes) { volume in
+                                CapacityGauge(
+                                    label: volume.label,
+                                    sublabel: MetricsFormat.bytes(volume.freeBytes) + " free",
+                                    pct: volume.usedPct,
+                                    level: volume.capacitySeverity(thresholds: model.settings.thresholds)
+                                )
+                            }
+                            if model.volumes.count < 3 { Spacer() }
+                        }
+
+                        Divider().overlay(Color.fsPanelBorder)
+
+                        VStack(spacing: 0) {
+                            ForEach(model.volumes) { volume in
+                                VolumeRow(
+                                    volume: volume,
+                                    thresholds: model.settings.thresholds,
+                                    isSelected: volume.path == model.selectedVolume
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture { model.selectedVolume = volume.path }
+                                if volume.id != model.volumes.last?.id {
+                                    Divider().overlay(Color.fsPanelBorder)
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    private var chartsSection: some View {
-        LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 420), spacing: 16)],
-            spacing: 16
-        ) {
-            ThroughputPanel(model: model)
-            CapacityPanel(model: model)
+    // MARK: Performance
+
+    private var performanceSection: some View {
+        SectionRow("Performance", subtitle: model.selectedVolume) {
+            LazyVGrid(columns: Self.chartColumns, spacing: 10) {
+                TimeSeriesPanel(
+                    title: "Throughput",
+                    unit: "GB/s",
+                    points: model.throughputPoints,
+                    color: .fsAccent,
+                    emptyText: "No I/O samples in the last hour"
+                )
+                TimeSeriesPanel(
+                    title: "IOPS",
+                    unit: "transfers/s",
+                    points: model.iopsPoints,
+                    color: .fsCyan,
+                    emptyText: "No transfer samples in the last hour"
+                )
+                TimeSeriesPanel(
+                    title: "Average I/O size",
+                    unit: "KB/transfer",
+                    points: model.ioSizePoints,
+                    color: .fsPurple,
+                    emptyText: "No transfer samples in the last hour"
+                )
+            }
+        }
+    }
+
+    // MARK: Capacity
+
+    private var capacitySection: some View {
+        SectionRow("Capacity", subtitle: "last scan \(model.lastScanDescription)") {
+            LazyVGrid(columns: Self.chartColumns, spacing: 10) {
+                TimeSeriesPanel(
+                    title: "Capacity used over time",
+                    unit: "%",
+                    points: model.capacityPoints,
+                    color: .fsWarn,
+                    emptyText: "No capacity samples in the last 6 hours",
+                    yDomain: 0...100,
+                    thresholds: (
+                        warn: model.settings.thresholds.capacityPctWarn,
+                        crit: model.settings.thresholds.capacityPctCrit
+                    )
+                )
+                UsersPanel(model: model)
+            }
+        }
+    }
+
+    // MARK: Shared storage
+
+    private var sharedStorageSection: some View {
+        SectionRow("Shared storage", subtitle: "NFS / pNFS client state") {
+            Panel("Mounts") {
+                VStack(spacing: 0) {
+                    ForEach(model.nfs) { mount in
+                        NFSRow(mount: mount)
+                        if mount.id != model.nfs.last?.id {
+                            Divider().overlay(Color.fsPanelBorder)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Alerts
+
+    private var alertsSection: some View {
+        SectionRow("Alerts", subtitle: model.alerts.isEmpty ? "none recorded" : "\(model.alerts.count) recent") {
+            AlertsPanel(model: model)
         }
     }
 }
 
-// MARK: - Volume card
+// MARK: - Volume row
 
-struct VolumeCard: View {
+struct VolumeRow: View {
     let volume: VolumeSummary
     let thresholds: AlertThresholds
+    let isSelected: Bool
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(volume.label).font(.headline)
-                if volume.smartOK == false {
-                    Badge(text: "SMART FAIL", level: .critical)
-                }
-                if volume.writable == false {
-                    Badge(text: "READ-ONLY", level: .critical)
-                }
-                Spacer()
-                if volume.kind == .nfs {
-                    Text(volume.kind.rawValue.uppercased())
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
-                GridRow {
-                    Text("\(MetricsFormat.bytes(volume.displayUsedBytes)) used of \(MetricsFormat.bytes(volume.totalBytes))")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    UsedBar(
-                        pct: volume.usedPct,
-                        level: volume.capacitySeverity(thresholds: thresholds)
-                    )
-                    Badge(
-                        text: MetricsFormat.pct(volume.usedPct),
-                        level: volume.capacitySeverity(thresholds: thresholds)
-                    )
-                }
-                GridRow {
-                    Text(throughputDescription)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .gridCellColumns(3)
-                }
-            }
-        }
-        .padding(12)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+    private var severity: StatusLevel {
+        volume.capacitySeverity(thresholds: thresholds)
     }
 
-    private var throughputDescription: String {
-        guard let value = volume.throughputGbps else { return "no I/O sample" }
-        let age = MetricsFormat.age(secondsAgo: volume.throughputAgeSeconds)
-        return "\(MetricsFormat.gbps(value)) · \(age)"
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(max(severity, volume.healthSeverity()).color)
+                .frame(width: 7, height: 7)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(volume.label)
+                        .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    if volume.kind == .nfs || volume.kind == .smb {
+                        Badge(text: volume.kind.rawValue.uppercased(), level: StatusLevel.none)
+                    }
+                    if volume.smartOK == false {
+                        Badge(text: "SMART FAIL", level: .critical)
+                    }
+                    if volume.writable == false {
+                        Badge(text: "READ-ONLY", level: .warning)
+                    }
+                }
+                Text("\(MetricsFormat.bytes(volume.displayUsedBytes)) used of \(MetricsFormat.bytes(volume.totalBytes)) · \(MetricsFormat.gbps(volume.throughputGbps))")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer(minLength: 10)
+
+            UsedBar(pct: volume.usedPct, level: severity, width: 120)
+            Text(MetricsFormat.pct(volume.usedPct))
+                .font(.system(size: 11, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(severity.color)
+                .frame(width: 52, alignment: .trailing)
+        }
+        .padding(.vertical, 7)
+        .background(isSelected ? Color.white.opacity(0.04) : .clear)
     }
 }
 
-// MARK: - Charts
+// MARK: - NFS row
 
-struct ThroughputPanel: View {
-    @Bindable var model: AppModel
+struct NFSRow: View {
+    let mount: NFSSummary
 
     var body: some View {
-        Panel("Throughput (GB/s)") {
-            VolumeSelectorHeader(
-                selection: $model.selectedThroughputVolume,
-                names: model.volumeNames
-            )
-            if model.throughputPoints.isEmpty {
-                EmptyChartPlaceholder(text: "No I/O samples in the last hour")
-            } else {
-                Chart(model.throughputPoints) { point in
-                    LineMark(
-                        x: .value("Time", point.ts),
-                        y: .value("GB/s", point.value)
-                    )
-                    .foregroundStyle(Color.fsAccent)
-                    .interpolationMethod(.monotone)
+        HStack(spacing: 10) {
+            Circle()
+                .fill(mount.severity.color)
+                .frame(width: 7, height: 7)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(mount.label)
+                        .font(.system(size: 12))
+                    if mount.pnfsEnabled == true {
+                        Badge(text: "pNFS", level: .ok)
+                    }
                 }
-                .chartYScale(domain: 0...Self.upperBound(for: model.throughputPoints))
-                .frame(height: 200)
+                Text(mount.mountOK == false ? "mount is down" : "mount is up")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer(minLength: 10)
+
+            MetricPill(label: "timeouts", value: MetricsFormat.count(mount.timeouts),
+                        level: (mount.timeouts ?? 0) > 0 ? .warning : .ok)
+            MetricPill(label: "retransmits", value: MetricsFormat.count(mount.retransmits),
+                        level: (mount.retransmits ?? 0) > 0 ? .warning : .ok)
+        }
+        .padding(.vertical, 7)
+    }
+}
+
+struct MetricPill: View {
+    let label: String
+    let value: String
+    let level: StatusLevel
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 1) {
+            Text(value)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(level.color)
+            Text(label.uppercased())
+                .font(.system(size: 9))
+                .tracking(0.4)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(width: 84, alignment: .trailing)
+    }
+}
+
+// MARK: - Time series panel
+
+/// One Grafana time-series panel: gradient area under a line, muted grid,
+/// optional threshold rules drawn across the plot.
+struct TimeSeriesPanel: View {
+    let title: String
+    let unit: String
+    let points: [ChartPoint]
+    let color: Color
+    let emptyText: String
+    var yDomain: ClosedRange<Double>? = nil
+    var thresholds: (warn: Double, crit: Double)? = nil
+
+    var body: some View {
+        Panel(title, accessory: {
+            Text(unit)
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+        }) {
+            if points.isEmpty {
+                EmptyChartPlaceholder(text: emptyText)
+            } else {
+                Chart {
+                    ForEach(points) { point in
+                        AreaMark(
+                            x: .value("Time", point.ts),
+                            y: .value(unit, point.value)
+                        )
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [color.opacity(0.35), color.opacity(0.02)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .interpolationMethod(.monotone)
+
+                        LineMark(
+                            x: .value("Time", point.ts),
+                            y: .value(unit, point.value)
+                        )
+                        .foregroundStyle(color)
+                        .lineStyle(StrokeStyle(lineWidth: 1.8))
+                        .interpolationMethod(.monotone)
+                    }
+
+                    // Threshold lines make the capacity chart self-explaining:
+                    // the audience can see how close the volume is to the
+                    // configured warn/critical levels without reading Settings.
+                    if let thresholds {
+                        RuleMark(y: .value("Warn", thresholds.warn))
+                            .foregroundStyle(Color.fsWarn.opacity(0.5))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                        RuleMark(y: .value("Critical", thresholds.crit))
+                            .foregroundStyle(Color.fsCrit.opacity(0.5))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                    }
+                }
+                .chartYScale(domain: yDomain ?? 0...Self.upperBound(for: points))
+                .fsChartAxes()
+                .frame(height: 180)
             }
         }
     }
 
     private static func upperBound(for points: [ChartPoint]) -> Double {
         let maximum = points.map(\.value).max() ?? 0
-        return max(0.1, (maximum * 1.1).rounded(.up))
-    }
-}
-
-struct CapacityPanel: View {
-    @Bindable var model: AppModel
-
-    var body: some View {
-        Panel("Capacity over time (%)") {
-            VolumeSelectorHeader(
-                selection: $model.selectedCapacityVolume,
-                names: model.volumeNames
-            )
-            if model.capacityPoints.isEmpty {
-                EmptyChartPlaceholder(text: "No capacity samples in the last 6 hours")
-            } else {
-                Chart(model.capacityPoints) { point in
-                    LineMark(
-                        x: .value("Time", point.ts),
-                        y: .value("% used", point.value)
-                    )
-                    .foregroundStyle(Color.fsWarn)
-                    .interpolationMethod(.monotone)
-                }
-                .chartYScale(domain: 0...100)
-                .frame(height: 200)
-            }
-        }
-    }
-}
-
-/// Flask's `<select>` above each chart.
-struct VolumeSelectorHeader: View {
-    @Binding var selection: String?
-    let names: [String]
-
-    var body: some View {
-        HStack {
-            Spacer()
-            if names.isEmpty {
-                Text("no volumes")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Picker("Volume", selection: $selection) {
-                    ForEach(names, id: \.self) { name in
-                        Text(name).tag(name as String?)
-                    }
-                }
-                .labelsHidden()
-                .frame(maxWidth: 260)
-            }
-        }
-    }
-}
-
-// MARK: - Shared chrome
-
-struct Panel<Content: View>: View {
-    let title: String
-    let content: Content
-
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title.uppercased())
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-                .tracking(0.5)
-            content
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
-    }
-}
-
-struct Badge: View {
-    let text: String
-    let level: StatusLevel
-
-    var body: some View {
-        Text(text)
-            .font(.caption2)
-            .fontWeight(.semibold)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .background(level.color.opacity(0.18), in: Capsule())
-            .foregroundStyle(level.color)
-    }
-}
-
-/// The Flask `.bar-bg` / `.bar-fill` capacity bar.
-struct UsedBar: View {
-    let pct: Double?
-    let level: StatusLevel
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary)
-                Capsule()
-                    .fill(level.color)
-                    .frame(width: proxy.size.width * clampedFraction)
-            }
-        }
-        .frame(width: 140, height: 8)
-    }
-
-    private var clampedFraction: Double {
-        min(max((pct ?? 0) / 100, 0), 1)
-    }
-}
-
-struct EmptyChartPlaceholder: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, minHeight: 200)
+        return max(0.1, maximum * 1.2)
     }
 }

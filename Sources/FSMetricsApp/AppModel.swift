@@ -23,6 +23,16 @@ final class AppModel {
     private(set) var lastRefresh: Date?
     private(set) var isCollecting = false
     private(set) var lastError: String?
+    private(set) var iopsPoints: [ChartPoint] = []
+    private(set) var ioSizePoints: [ChartPoint] = []
+    private(set) var nfs: [NFSSummary] = []
+    private(set) var latestIOPS: Double?
+    private(set) var latestIOSizeKB: Double?
+
+    /// One dashboard-wide volume selector, the way a Grafana template
+    /// variable scopes every panel at once. The three per-panel selections
+    /// below are kept in sync with it so `DashboardLoader` is untouched.
+    var selectedVolume: String?
 
     var selectedThroughputVolume: String?
     var selectedCapacityVolume: String?
@@ -102,9 +112,9 @@ final class AppModel {
         let generation = refreshGeneration
         let settings = self.settings
         let selection = DashboardSelection(
-            throughputVolume: selectedThroughputVolume,
-            capacityVolume: selectedCapacityVolume,
-            usersVolume: selectedUsersVolume
+            throughputVolume: selectedVolume,
+            capacityVolume: selectedVolume,
+            usersVolume: selectedVolume
         )
         let now = Date()
 
@@ -210,6 +220,75 @@ final class AppModel {
         MetricsFormat.age(lastCapacityScan)
     }
 
+    // MARK: - KPI projections (the stat-tile row)
+
+    /// The volume the dashboard is currently scoped to.
+    var focusedVolume: VolumeSummary? {
+        guard let selectedVolume else { return volumes.first }
+        return volumes.first { $0.path == selectedVolume } ?? volumes.first
+    }
+
+    /// Capacity summed across every monitored volume, so the headline number
+    /// describes the host rather than whichever volume happens to be picked.
+    var fleetTotalBytes: Double? {
+        let values = volumes.compactMap(\.totalBytes)
+        return values.isEmpty ? nil : values.reduce(0, +)
+    }
+
+    var fleetUsedBytes: Double? {
+        let values = volumes.compactMap(\.displayUsedBytes)
+        return values.isEmpty ? nil : values.reduce(0, +)
+    }
+
+    var fleetFreeBytes: Double? {
+        guard let fleetTotalBytes, let fleetUsedBytes else { return nil }
+        return max(0, fleetTotalBytes - fleetUsedBytes)
+    }
+
+    var fleetUsedPct: Double? {
+        guard let fleetTotalBytes, fleetTotalBytes > 0, let fleetUsedBytes else { return nil }
+        return fleetUsedBytes / fleetTotalBytes * 100
+    }
+
+    var fleetCapacitySeverity: StatusLevel {
+        guard let fleetUsedPct else { return .none }
+        if fleetUsedPct >= settings.thresholds.capacityPctCrit { return .critical }
+        if fleetUsedPct >= settings.thresholds.capacityPctWarn { return .warning }
+        return .ok
+    }
+
+    /// Volumes whose health samples all look good, over the total monitored.
+    var healthyVolumeCount: Int {
+        volumes.filter { $0.healthSeverity() != .critical }.count
+    }
+
+    var healthSeverity: StatusLevel {
+        var level = StatusLevel.none
+        for volume in volumes {
+            level = max(level, volume.healthSeverity())
+        }
+        return level
+    }
+
+    /// Alerts inside the menu-bar freshness window — "what's firing right
+    /// now", not the whole history the alerts table shows.
+    var activeAlerts: [AlertRow] {
+        let horizon = Date().addingTimeInterval(-Self.alertFreshness(settings.thresholds))
+        return alerts.filter { $0.ts >= horizon }
+    }
+
+    var activeAlertSeverity: StatusLevel {
+        var level = StatusLevel.none
+        for alert in activeAlerts {
+            level = max(level, alert.severity == .critical ? .critical : .warning)
+        }
+        return level == .none && !volumes.isEmpty ? .ok : level
+    }
+
+    var throughputSeverity: StatusLevel {
+        focusedVolume?.throughputGbps == nil ? .none : .ok
+    }
+
     // MARK: - Wiring
 
     private func rebuildService() {
@@ -260,6 +339,15 @@ final class AppModel {
         selectedUsersVolume = snapshot.usersVolume
         users = snapshot.users
         lastCapacityScan = snapshot.lastCapacityScan
+        iopsPoints = snapshot.iopsPoints
+        ioSizePoints = snapshot.ioSizePoints
+        nfs = snapshot.nfs
+        latestIOPS = snapshot.latestIOPS
+        latestIOSizeKB = snapshot.latestIOSizeKB
+        // The loader resolves nil (or a stale name) to the first known
+        // volume; adopt whatever it settled on so the picker shows the data
+        // actually on screen.
+        selectedVolume = snapshot.throughputVolume
     }
 
     private static func makeNotifier(for settings: Settings) -> any Notifier {

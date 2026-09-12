@@ -133,6 +133,28 @@ struct AlertRow: Identifiable, Sendable, Equatable {
     }
 }
 
+/// Client-side NFS/pNFS state for one shared volume. These metrics were
+/// already being collected by `NFSCollector` but had no home in the UI.
+struct NFSSummary: Identifiable, Sendable, Equatable {
+    var volume: String
+    var label: String
+    var mountOK: Bool?
+    var pnfsEnabled: Bool?
+    var timeouts: Double?
+    var retransmits: Double?
+
+    var id: String { volume }
+
+    /// A mount that is down is critical; timeouts or retransmits on an
+    /// otherwise-up mount are a warning worth showing before it becomes one.
+    var severity: StatusLevel {
+        if mountOK == false { return .critical }
+        if (timeouts ?? 0) > 0 || (retransmits ?? 0) > 0 { return .warning }
+        if mountOK == nil { return .none }
+        return .ok
+    }
+}
+
 /// One point of either Flask history endpoint.
 struct ChartPoint: Identifiable, Sendable, Equatable {
     var ts: Date
@@ -173,6 +195,19 @@ enum MetricsFormat {
     /// `fmtTime`: locale time-of-day.
     static func time(_ date: Date) -> String {
         date.formatted(date: .omitted, time: .standard)
+    }
+
+    /// Big-number formatting for stat tiles: no unit suffix, sensible
+    /// precision, so "1.4" and "GB/s" can be styled separately.
+    static func stat(_ value: Double?, decimals: Int = 2) -> String {
+        guard let value, value.isFinite else { return "—" }
+        return String(format: "%.\(decimals)f", value)
+    }
+
+    /// Thousands-separated integer, for counts like IOPS and file totals.
+    static func count(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "—" }
+        return value.formatted(.number.precision(.fractionLength(0)))
     }
 
     static func age(_ date: Date?, now: Date = Date()) -> String {
@@ -217,6 +252,14 @@ struct DashboardSnapshot: Sendable {
     var usersVolume: String?
     var users: [UserUsage]
     var lastCapacityScan: Date?
+    /// `perf.transfers_per_sec` — collected since day one, never displayed
+    /// until now.
+    var iopsPoints: [ChartPoint] = []
+    /// `perf.kb_per_transfer` — average I/O size, the companion to IOPS.
+    var ioSizePoints: [ChartPoint] = []
+    var nfs: [NFSSummary] = []
+    var latestIOPS: Double?
+    var latestIOSizeKB: Double?
 }
 
 /// Read-only projection of `MetricQuery` into UI models. This is the only
@@ -314,6 +357,44 @@ enum DashboardLoader {
                 .sorted { $0.bytes > $1.bytes }
         }
 
+        // Performance detail for the selected volume: IOPS and average I/O
+        // size share the throughput lookback so the three perf charts line up
+        // on the same x range.
+        var iopsPoints: [ChartPoint] = []
+        var ioSizePoints: [ChartPoint] = []
+        var latestIOPS: Double?
+        var latestIOSizeKB: Double?
+        if let throughputVolume {
+            let since = now.addingTimeInterval(-Lookback.throughput)
+            iopsPoints = try store
+                .series(of: .transfersPerSec, volume: throughputVolume, since: since)
+                .map { ChartPoint(ts: $0.ts, value: $0.value) }
+            ioSizePoints = try store
+                .series(of: .kbPerTransfer, volume: throughputVolume, since: since)
+                .map { ChartPoint(ts: $0.ts, value: $0.value) }
+            latestIOPS = try store.latest(of: .transfersPerSec, volume: throughputVolume)?.value
+            latestIOSizeKB = try store.latest(of: .kbPerTransfer, volume: throughputVolume)?.value
+        }
+
+        // NFS rows only for volumes that actually reported a mount sample, so
+        // an all-APFS host doesn't get an empty shared-storage panel.
+        var nfs: [NFSSummary] = []
+        for path in volumeNames {
+            guard let mountOK = try store.latest(of: .nfsMountOK, volume: path) else { continue }
+            let configured = settings.volumes.first { $0.path == path }
+            let pnfs = try store.latest(of: .pnfsEnabled, volume: path)
+            let timeouts = try store.latest(of: .nfsClientTimeouts, volume: path)
+            let retransmits = try store.latest(of: .nfsClientRetransmits, volume: path)
+            nfs.append(NFSSummary(
+                volume: path,
+                label: configured?.label ?? path,
+                mountOK: mountOK.value != 0,
+                pnfsEnabled: pnfs.map { $0.value != 0 },
+                timeouts: timeouts?.value,
+                retransmits: retransmits?.value
+            ))
+        }
+
         let alerts = try store.recentAlerts(limit: Lookback.alerts).map { event in
             AlertRow(
                 ts: event.ts,
@@ -335,7 +416,12 @@ enum DashboardLoader {
             capacityPoints: capacityPoints,
             usersVolume: usersVolume,
             users: users,
-            lastCapacityScan: lastCapacityScan
+            lastCapacityScan: lastCapacityScan,
+            iopsPoints: iopsPoints,
+            ioSizePoints: ioSizePoints,
+            nfs: nfs,
+            latestIOPS: latestIOPS,
+            latestIOSizeKB: latestIOSizeKB
         )
     }
 
