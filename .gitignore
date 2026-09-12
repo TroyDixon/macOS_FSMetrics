@@ -1,0 +1,9 @@
+.build/
+.swiftpm/
+data/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+.idea/
+.vscode/
