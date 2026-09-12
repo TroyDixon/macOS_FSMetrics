@@ -43,4 +43,18 @@ final class RouterTests: XCTestCase {
         }
         XCTAssertThrowsError(try HTTPParser.parse(Data(repeating: 65, count: HTTPParser.maxHeader + 1)))
     }
+    func testJSONUsesShortestNumbersAndPreservesNulls() throws {
+        let data = try JSON.object([
+            "used_pct": .number(81.6),
+            "ratio": .number(0.1),
+            "missing": .null,
+            "invalid": .number(.infinity),
+            "escaped": .string("quote\" slash\\ line\n tab\t control\u{1}"),
+        ]).encoded()
+        XCTAssertEqual(
+            String(decoding: data, as: UTF8.self),
+            "{\"escaped\":\"quote\\\" slash\\\\ line\\n tab\\t control\\u0001\",\"invalid\":null,\"missing\":null,\"ratio\":0.1,\"used_pct\":81.6}"
+        )
+        XCTAssertNoThrow(try JSONSerialization.jsonObject(with: data))
+    }
 }
