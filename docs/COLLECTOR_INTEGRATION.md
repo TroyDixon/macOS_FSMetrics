@@ -1,4 +1,4 @@
-# Phase 0 review notes
+# Collector integration
 
 Implemented: Swift package, contract schema version 1, SQLite writer/read connection,
 independent sampler scheduling and status storage, dummy sampler, HTTP transport and
@@ -23,9 +23,11 @@ without edits to the package manifest, main, or core registration.
   (`integer`, `real`, `text`, `blob`, `null`). Bind all external values.
 - Do not retain a connection beyond its closure, nest database calls inside those
   closures, or open a transaction inside `db.write`.
-- Samplers get epoch seconds in `ctx.ts`, and return `.ok`, `.degraded(detail)`,
-  or throw. Use `statuses.snapshot()` when implementing health. Before first
-  collection, status is degraded with a null lastRun and an explanatory detail.
+- Samplers get an aligned epoch-second storage key in `ctx.ts` and raw monotonic
+  time in `ctx.monotonicNanos`. Use monotonic deltas for rates and latency; wall
+  time can jump. Return `.ok`, `.degraded(detail)`, or throw. Use
+  `statuses.snapshot()` when implementing health. Each sampler runs immediately
+  at startup, then at interval boundaries plus 50 ms.
 - Routes use `try Response.json(.object(...))`; missing values must be `.null`.
   Use `Response.error` for expected API errors; thrown handler errors become
   a generic `internal` 500 response, with the actual error logged.
@@ -63,12 +65,18 @@ preceding statement. Expect WAL, a growing count, all 16 contract tables plus
 `debug_samples`, and a JSON 404 with CORS headers. After shutdown, the WAL is
 removed or zero-length and the database passes `PRAGMA integrity_check`.
 
-`sudo make install` installs the release binary and plist and bootstraps a root
-system daemon. `sudo make uninstall` boots it out and removes those two files,
-retaining `/var/db/fsmond`. Installation is for a fresh service; boot out an
-already installed service before reinstalling. `make clean` removes `.build`
-and the local `data` directory. Installation/uninstallation are not part of
-Phase 0's executed verification.
+Run `make build` as your normal user before `sudo make install`. Installation
+checks for that release binary, boots out an existing service when present,
+installs the binary and plist, and bootstraps a root system daemon. This keeps
+root-owned files out of `.build` and permits reinstalling. `sudo make uninstall`
+boots it out and removes those two files, retaining `/var/db/fsmond`. `make clean`
+removes `.build` and the local `data` directory. Installation/uninstallation are
+not part of Phase 0's executed verification.
+
+For a frontend on another machine, pass `--bind 0.0.0.0` and allow the port
+through the host firewall. This exposes every route to the reachable network.
+The API has no authentication, including planned write routes such as
+`POST /api/v1/scans`, so use that binding only on a trusted hackathon network.
 
 ## Contract questions for C before later phases
 
@@ -99,13 +107,15 @@ explicitly requested Phase 0 scope and does not imply team approval of changes.
 ## Verified on 2026-09-12
 
 - `make build`: release build passed with Swift 6.3.3.
-- `make test`: 12 XCTest tests passed, including schema reopen, value binding,
-  transaction rollback, FK enforcement, read-only access, WAL read/write overlap,
-  config precedence, router matching/404, framing rejection, and scheduler
-  isolation, skipped ticks, status reporting, and stop behavior.
+- `make test`: 16 XCTest tests passed, including schema reopen and ordered upgrade,
+  migration rollback, value binding, transaction rollback, FK enforcement,
+  read-only access, WAL read/write overlap, config precedence, exact JSON number
+  encoding, router matching/404, framing rejection, and immediate/aligned scheduler
+  timing, isolation, skipped ticks, status reporting, and stop behavior.
 - Contract SQL and Schema.ddl source matched byte for byte.
-- Live `make run`: sample count increased from 10 to 66, with one sample per
-  second; WAL mode and all 16 contract tables plus debug_samples were present.
+- Live `make run`: the first sample was written during startup, the latest eight
+  timestamps were consecutive seconds, and no duplicate timestamp existed;
+  WAL mode and all 16 contract tables plus debug_samples were present.
 - Live curl: 404, application/json, contract not_found envelope, and CORS headers.
 - Ctrl-C: drain/shutdown log completed, WAL absent or empty, integrity_check ok.
 - LaunchDaemon plist passed `plutil -lint`; service installation was not run.
