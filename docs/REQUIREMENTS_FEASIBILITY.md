@@ -15,7 +15,7 @@ concrete, cited mechanism.
 |---|---|---|---|
 | 1 | FS health + backing block storage health | Integrated (SMART, writable, NVMe ok) | ✅ Extendable with real NVMe SMART (temp, wear, spare, media errors) via a public IOKit user client |
 | 2 | I/O performance GB/s | Integrated (IOKit counters + iostat fallback) | ✅ Read/write split, latency, transfer counts, error counters — all in the same `Statistics` dict we already read |
-| 3 | Capacity + per-user quotas | Integrated (per-UID walk + soft alerts) | ✅ Soft quotas (as the team contract mandates); kernel-enforced quotas are a **platform limitation** (quotactl → `ENOTSUP` on APFS); NFS server-side quotas are protocol-visible but not exposed by macOS userland tools |
+| 3 | Capacity + per-user quotas | Integrated (per-UID walk + soft alerts) | ✅ Soft quotas (see README "Why this data model (APFS quotas)"); kernel-enforced quotas are a **platform limitation** (quotactl → `ENOTSUP` on APFS); NFS server-side quotas are protocol-visible but not exposed by macOS userland tools |
 | 4 | Useful admin display | Integrated (menu bar + dashboard + CLI) | ✅ Panels for every metric below are ordinary SwiftUI work |
 | 5 | Alert/reporting on nefarious users / capacity | Integrated (rules + cooldown + notifiers) | ✅ NFS retransmit/timeout trend + I/O-error rules are integratable; per-process I/O attribution is **platform-limited** to root (`fs_usage`) |
 | 6 | Local APFS + shared NFS/pNFS | Integrated | ✅ APFS snapshots integratable; pNFS layout *operation* counters are already exposed by `nfsstat -f JSON` (new finding); per-layout-type byte stats remain platform-limited |
@@ -108,8 +108,8 @@ fallback; SI GB/s per [repo] README "Units").
 I.e. **IOPS, read/write split, and average latency** are derivable with the
 same cumulative-diff approach we already use for throughput — no new probe,
 no new permissions. This is the highest-value low-risk extension in this
-document and directly serves requirement 2 and the `/api/v1/devices/{id}/io`
-latency series in `INTERFACE_CONTRACT.md` §2.
+document and directly serves requirement 2 (per-device latency and IOPS
+metrics alongside the existing throughput series).
 
 ### G. Per-process I/O attribution — platform-limited
 
@@ -155,9 +155,10 @@ rules in `Alerts/AlertEngine.swift`).
   `165 AUE_QUOTACTL ALL { int quotactl(const char *path, int cmd, int uid, caddr_t arg); }`
   — the syscall exists; `setquota`/`qquota` (148/149) are `nosys`. The
   syscall exists; APFS does not answer it (see the ENOTSUP test).
-- **[repo]** `INTERFACE_CONTRACT.md` §3 already encodes the correct posture:
-  "macOS/APFS has **no kernel-enforced per-user quotas** … Our quotas are
-  **soft** … The UI must label this panel 'Soft Quotas (advisory)'."
+- **[repo]** `README.md` "Why this data model (APFS quotas)" already encodes
+  the correct posture: "APFS has no native per-user quota system … enforce
+  **soft, admin-configured thresholds** in the alert engine rather than
+  relying on kernel enforcement."
 - Verdict: requirement 3 is satisfied by per-UID accounting + soft thresholds
   (implemented). Kernel enforcement: platform limitation. NFS server-side
   quotas: NFSv4 defines quota attributes (`NFS_FATTR_QUOTA_AVAIL_HARD` 38,
@@ -173,8 +174,8 @@ rules in `Alerts/AlertEngine.swift`).
 Already integrated ([repo] `Sources/FSMetricsApp/` — `MenuBarExtra` severity +
 throughput, dashboard with Swift Charts throughput/capacity history, per-user
 `Table`, alerts list, volume cards, full `Settings` scene; `fsmetrics
-status`/`export`). Nothing here is platform-blocked; the contract's panel
-list (§2 endpoints) is a work plan, not a research question. Gaps to build:
+status`/`export`). Nothing here is platform-blocked; which panels to add is
+a work plan, not a research question. Gaps to build:
 largest-paths panel (the scanner already exists — [repo]
 `Sources/FileScanner.swift::largestPaths`, tested in
 `tests/FSMetricsCoreTests/CapacityCollectorTests.swift`), NVMe SMART panel,
@@ -245,9 +246,9 @@ Already integrated for mounts/health/flags ([repo] `NFSCollector.swift`,
 - So: the kernel speaks pNFS, and userland can see *that it happens* (JSON
   op counters), but no userland tool exposes layout-type *byte* statistics.
   Keep the boolean + add the op-counters; document the rest as the same
-  platform limitation stated in `INTERFACE_CONTRACT.md` §3's spirit.
+  platform-limitation posture the README takes for APFS quotas.
 
-### E. APFS snapshots (contract `/api/v1/snapshots`)
+### E. APFS snapshots
 
 - **[tool]** `diskutil apfs listSnapshots /System/Volumes/Data` →
   "No snapshots for disk3s5" — runs unprivileged on a *volume* device
@@ -311,9 +312,9 @@ Already integrated for mounts/health/flags ([repo] `NFSCollector.swift`,
 
 **Yes — all seven requirements can be fully satisfied in this build**, with
 the two honest exceptions above, which are macOS platform limits (not effort
-limits) and are already worded correctly in `INTERFACE_CONTRACT.md` §3 and
-`docs/FUTURE_WORK.md` #2. Everything else in the "more the better" bucket is
-a matter of integration work against APIs that are **public, documented, and
+limits) and are already worded correctly in `README.md` ("Why this data
+model (APFS quotas)") and `docs/FUTURE_WORK.md` #2. Everything else in the
+"more the better" bucket is a matter of integration work against APIs that are **public, documented, and
 confirmed present on this machine** — the largest single win being the IOKit
 `IOBlockStorageDriver` statistics table we already read (errors, retries,
 operations, latency for free) and the newly-discovered `nfsstat -f JSON`.
