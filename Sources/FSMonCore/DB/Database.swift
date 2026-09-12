@@ -16,7 +16,7 @@ public enum SQLValue: Equatable {
 /// or call back into Database from that closure (the queues are synchronous).
 public final class DatabaseConnection {
     private var handle: OpaquePointer?
-    fileprivate init(path: String, readOnly: Bool) throws {
+    init(path: String, readOnly: Bool) throws {
         let flags = (readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE) | SQLITE_OPEN_FULLMUTEX
         let result = sqlite3_open_v2(path, &handle, flags, nil)
         guard result == SQLITE_OK else {

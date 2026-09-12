@@ -46,6 +46,34 @@ final class DatabaseTests: XCTestCase {
         })
         XCTAssertEqual(try db.read { try $0.query("SELECT count(*) AS n FROM users").first?["n"] }, .integer(0))
     }
+    func testVersionOneDatabaseRunsVersionTwoMigration() throws {
+        let path = temporaryPath()
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
+        try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let connection = try DatabaseConnection(path: path, readOnly: false)
+        try connection.execute("CREATE TABLE migration_probe (first TEXT); PRAGMA user_version = 1")
+        try Schema.apply(to: connection, migrations: [
+            "CREATE TABLE migration_probe (first TEXT)",
+            "ALTER TABLE migration_probe ADD COLUMN second INTEGER",
+        ])
+        XCTAssertEqual(try connection.query("PRAGMA user_version").first?["user_version"], .integer(2))
+        let columns = try connection.query("PRAGMA table_info(migration_probe)").compactMap { $0["name"]?.string }
+        XCTAssertEqual(columns, ["first", "second"])
+    }
+
+    func testPendingMigrationsAreAtomic() throws {
+        let path = temporaryPath()
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
+        try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let connection = try DatabaseConnection(path: path, readOnly: false)
+        XCTAssertThrowsError(try Schema.apply(to: connection, migrations: [
+            "CREATE TABLE migration_probe (first TEXT)",
+            "THIS IS NOT SQL",
+        ]))
+        XCTAssertEqual(try connection.query("PRAGMA user_version").first?["user_version"], .integer(0))
+        XCTAssertTrue(try connection.query("SELECT name FROM sqlite_master WHERE name = 'migration_probe'").isEmpty)
+    }
+
     func testReaderContinuesDuringUncommittedWrite() throws {
         let path = temporaryPath()
         defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }

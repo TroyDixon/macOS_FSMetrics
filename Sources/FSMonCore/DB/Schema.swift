@@ -1,7 +1,6 @@
 import Foundation
 
 public enum Schema {
-    public static let version: Int64 = 1
     // Verbatim SQL from INTERFACE_CONTRACT.md, section 1.
     public static let ddl = #"""
 PRAGMA journal_mode = WAL;
@@ -239,17 +238,26 @@ CREATE INDEX idx_io_ts      ON io_samples(ts);
 CREATE INDEX idx_cap_ts     ON capacity_samples(ts);
 CREATE INDEX idx_user_io_ts ON user_io_samples(ts);
 """#
+    /// Migration at index i upgrades schema version i to i + 1.
+    public static let migrations = [ddl]
+    public static var version: Int64 { Int64(migrations.count) }
 
     static func apply(to connection: DatabaseConnection) throws {
+        try apply(to: connection, migrations: migrations)
+    }
+
+    static func apply(to connection: DatabaseConnection, migrations: [String]) throws {
         let current = try connection.query("PRAGMA user_version").first?["user_version"]?.integer ?? 0
-        guard current <= version else {
+        guard current >= 0, current <= migrations.count else {
             throw DatabaseError(message: "Database schema is newer than this collector")
         }
-        guard current == 0 else { return }
+        guard current < migrations.count else { return }
         try connection.execute("BEGIN IMMEDIATE")
         do {
-            try connection.execute(ddl)
-            try connection.execute("PRAGMA user_version = 1")
+            for migration in migrations[Int(current)...] {
+                try connection.execute(migration)
+            }
+            try connection.execute("PRAGMA user_version = \(migrations.count)")
             try connection.execute("COMMIT")
         } catch {
             try? connection.execute("ROLLBACK")
