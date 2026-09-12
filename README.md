@@ -34,12 +34,6 @@ cd macos-fs-metrics
 swift build
 swift test
 
-# One collection cycle:
-swift run fsmetrics collect --once
-
-# Latest per-volume summary:
-swift run fsmetrics status
-
 # Build and launch the app:
 Scripts/bundle.sh
 open build/FSMetrics.app
