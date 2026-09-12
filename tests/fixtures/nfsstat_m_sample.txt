@@ -1,0 +1,6 @@
+fileserver.lab.local:/export/research on /Volumes/Research
+Flags: vers=4,addr=10.20.0.12,rsize=65536,wsize=65536,pnfs,hard,intr
+Lease Time: 90     Lease Expiry: 47
+Since: Thu Sep 10 08:12:33 2026     Lease Renewed: never
+fileserver.lab.local:/export/scratch on /Volumes/Scratch
+Flags: vers=3,addr=10.20.0.12,rsize=32768,wsize=32768,soft

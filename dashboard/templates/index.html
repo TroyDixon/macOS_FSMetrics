@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>macOS FS Metrics — Admin Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#0e1117; --panel:#161b22; --text:#e6edf3; --muted:#8b949e;
+          --ok:#3fb950; --warn:#d29922; --crit:#f85149; --accent:#58a6ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { padding: 18px 24px; border-bottom: 1px solid #21262d; display:flex; align-items:center; justify-content:space-between; }
+  header h1 { font-size: 18px; margin:0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  main { padding: 20px 24px; display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+  .panel { background: var(--panel); border: 1px solid #21262d; border-radius: 10px; padding: 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 12px 0; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .vol-row { display:flex; justify-content: space-between; align-items:center; padding: 10px 0; border-bottom: 1px solid #21262d; }
+  .vol-row:last-child { border-bottom: none; }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight:600; }
+  .badge.ok { background: rgba(63,185,80,.15); color: var(--ok); }
+  .badge.warn { background: rgba(210,153,34,.15); color: var(--warn); }
+  .badge.crit { background: rgba(248,81,73,.15); color: var(--crit); }
+  .bar-bg { background:#21262d; border-radius: 6px; height: 8px; width: 140px; overflow:hidden; }
+  .bar-fill { height: 100%; background: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #21262d; }
+  th { color: var(--muted); font-weight: 500; }
+  .alert-row.critical { color: var(--crit); }
+  .alert-row.warning { color: var(--warn); }
+  .muted { color: var(--muted); font-size: 12px; }
+  canvas { max-height: 220px; }
+  select { background: var(--panel); color: var(--text); border: 1px solid #21262d; border-radius: 6px; padding: 4px 8px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>macOS FS Metrics — Admin Dashboard</h1>
+    <div class="sub">HackWesTex 2026 — local + shared volume monitoring</div>
+  </div>
+  <div class="sub" id="last-refresh">refreshing…</div>
+</header>
+
+<main>
+  <div class="panel" style="grid-column: 1 / -1;">
+    <h2>Volumes</h2>
+    <div id="volumes"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Throughput (GB/s) <select id="throughput-vol"></select></h2>
+    <canvas id="throughputChart"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>Capacity over time (%) <select id="capacity-vol"></select></h2>
+    <canvas id="capacityChart"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>Per-user usage <select id="users-vol"></select></h2>
+    <table id="users-table">
+      <thead><tr><th>User</th><th>UID</th><th>Bytes used</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="panel" style="grid-column: 1 / -1;">
+    <h2>Recent alerts</h2>
+    <table id="alerts-table">
+      <thead><tr><th>Time</th><th>Severity</th><th>Volume</th><th>Category</th><th>Message</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const fmtBytes = (b) => {
+  if (b == null) return '—';
+  const units = ['B','KB','MB','GB','TB','PB'];
+  let i = 0; let v = b;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return v.toFixed(2) + ' ' + units[i];
+};
+const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString();
+
+let throughputChart, capacityChart;
+
+function ensureCharts() {
+  const tCtx = document.getElementById('throughputChart');
+  const cCtx = document.getElementById('capacityChart');
+  throughputChart = new Chart(tCtx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ label: 'GB/s', data: [], borderColor: '#58a6ff', tension: .3, pointRadius: 0 }] },
+    options: { responsive: true, scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
+  });
+  capacityChart = new Chart(cCtx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ label: '% used', data: [], borderColor: '#d29922', tension: .3, pointRadius: 0 }] },
+    options: { responsive: true, scales: { y: { beginAtZero: true, max: 100 } }, plugins: { legend: { display: false } } }
+  });
+}
+
+async function refreshVolumeSelectors(volumes) {
+  for (const id of ['throughput-vol', 'capacity-vol', 'users-vol']) {
+    const sel = document.getElementById(id);
+    if (sel.options.length !== volumes.length) {
+      sel.innerHTML = volumes.map(v => `<option value="${v.volume}">${v.volume}</option>`).join('');
+    }
+  }
+}
+
+function severityBadge(usedPct) {
+  if (usedPct == null) return '<span class="badge">n/a</span>';
+  if (usedPct >= 95) return `<span class="badge crit">${usedPct.toFixed(1)}%</span>`;
+  if (usedPct >= 80) return `<span class="badge warn">${usedPct.toFixed(1)}%</span>`;
+  return `<span class="badge ok">${usedPct.toFixed(1)}%</span>`;
+}
+
+async function refreshVolumes() {
+  const res = await fetch('/api/summary');
+  const volumes = await res.json();
+  await refreshVolumeSelectors(volumes);
+
+  const el = document.getElementById('volumes');
+  el.innerHTML = volumes.map(v => `
+    <div class="vol-row">
+      <div>
+        <div><strong>${v.volume}</strong>
+          ${v.smart_ok === false ? '<span class="badge crit">SMART FAIL</span>' : ''}
+          ${v.writable === false ? '<span class="badge crit">READ-ONLY</span>' : ''}
+        </div>
+        <div class="muted">${fmtBytes(v.used_pct != null ? (v.used_pct/100)*v.total_bytes : null)} used of ${fmtBytes(v.total_bytes)}
+          &nbsp;·&nbsp; ${v.throughput_gbps != null ? v.throughput_gbps.toFixed(2) + ' GB/s' : 'no I/O sample'}</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div class="bar-bg"><div class="bar-fill" style="width:${Math.min(v.used_pct||0,100)}%"></div></div>
+        ${severityBadge(v.used_pct)}
+      </div>
+    </div>
+  `).join('') || '<div class="muted">No data yet — start the collector daemon.</div>';
+}
+
+async function refreshThroughput() {
+  const vol = document.getElementById('throughput-vol').value;
+  if (!vol) return;
+  const res = await fetch(`/api/throughput?volume=${encodeURIComponent(vol)}`);
+  const rows = await res.json();
+  throughputChart.data.labels = rows.map(r => fmtTime(r.ts));
+  throughputChart.data.datasets[0].data = rows.map(r => r.value);
+  throughputChart.update();
+}
+
+async function refreshCapacityHistory() {
+  const vol = document.getElementById('capacity-vol').value;
+  if (!vol) return;
+  const res = await fetch(`/api/capacity_history?volume=${encodeURIComponent(vol)}`);
+  const rows = await res.json();
+  capacityChart.data.labels = rows.map(r => fmtTime(r.ts));
+  capacityChart.data.datasets[0].data = rows.map(r => r.value);
+  capacityChart.update();
+}
+
+async function refreshUsers() {
+  const vol = document.getElementById('users-vol').value;
+  if (!vol) return;
+  const res = await fetch(`/api/users?volume=${encodeURIComponent(vol)}`);
+  const rows = await res.json();
+  const tbody = document.querySelector('#users-table tbody');
+  tbody.innerHTML = rows.map(u => `<tr><td>${u.username || u.uid}</td><td>${u.uid}</td><td>${fmtBytes(u.bytes)}</td></tr>`).join('')
+    || '<tr><td colspan="3" class="muted">No per-user data yet</td></tr>';
+}
+
+async function refreshAlerts() {
+  const res = await fetch('/api/alerts');
+  const rows = await res.json();
+  const tbody = document.querySelector('#alerts-table tbody');
+  tbody.innerHTML = rows.map(a => `
+    <tr class="alert-row ${a.severity}">
+      <td>${fmtTime(a.ts)}</td><td>${a.severity}</td><td>${a.volume}</td><td>${a.category}</td><td>${a.message}</td>
+    </tr>`).join('') || '<tr><td colspan="5" class="muted">No alerts yet</td></tr>';
+}
+
+async function refreshAll() {
+  await refreshVolumes();
+  await Promise.all([refreshThroughput(), refreshCapacityHistory(), refreshUsers(), refreshAlerts()]);
+  document.getElementById('last-refresh').textContent = 'last refreshed ' + new Date().toLocaleTimeString();
+}
+
+ensureCharts();
+refreshAll();
+setInterval(refreshAll, 5000);
+for (const id of ['throughput-vol', 'capacity-vol', 'users-vol']) {
+  document.getElementById(id).addEventListener('change', refreshAll);
+}
+</script>
+</body>
+</html>
