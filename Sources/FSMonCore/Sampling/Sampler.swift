@@ -8,9 +8,17 @@ public protocol Sampler: AnyObject {
 public enum SamplerOutcome: Equatable { case ok, degraded(String) }
 public struct SampleContext {
     public let ts: Int64
+    /// Raw monotonic time for elapsed-time and rate calculations. This value is
+    /// unrelated to Unix epoch time and remains stable across wall-clock changes.
+    public let monotonicNanos: UInt64
     public let db: Database
     public let log: Logger
-    public init(ts: Int64, db: Database, log: Logger) { self.ts = ts; self.db = db; self.log = log }
+    public init(ts: Int64, monotonicNanos: UInt64, db: Database, log: Logger) {
+        self.ts = ts
+        self.monotonicNanos = monotonicNanos
+        self.db = db
+        self.log = log
+    }
 }
 /// Populate during startup, before constructing the scheduler.
 public final class SamplerRegistry {
