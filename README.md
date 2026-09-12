@@ -91,7 +91,7 @@ entry for it once the mount exists:
 ```
 
 You can set capacity warn/critical levels, per-user growth limits, stall
-detection, alert cooldowns, and an optional Slack-compatible webhook URL.
+detection, and alert cooldowns.
 
 ## Alerts
 
@@ -103,31 +103,6 @@ detection, alert cooldowns, and an optional Slack-compatible webhook URL.
 
 Alerts are saved locally and can also post to a webhook and show as
 notifications.
-
-## Permissions
-
-Reading per-user usage under `/Users` and some drive-health details needs
-Full Disk Access. Grant it in **System Settings → Privacy & Security → Full
-Disk Access** to your terminal (for CLI runs) and/or the bundled app.
-
-Without it, the affected checks are skipped gracefully.
-
-## Repository layout
-
-```
-Package.swift
-Sources/
-  FSMetricsCore/   # collectors, store, alerting
-  FSMetricsApp/    # menu-bar app + dashboard
-  fsmetrics/       # CLI
-Tests/
-Scripts/
-  bundle.sh        # assemble + sign FSMetrics.app
-  install-agent.sh # autostart at login
-config.example.json
-docs/
-```
-
 ## Future work
 
 See `docs/FUTURE_WORK.md`. Highlights: kernel-enforced quotas,
