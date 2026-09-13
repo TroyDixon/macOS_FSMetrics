@@ -35,9 +35,22 @@ cd macOS_FSMetrics
 swift build
 swift test
 
-# Build and launch the app:
+# Set starter config 
+mkdir -p "$HOME/Library/Application Support/FSMetrics"
+cp config.example.json "$HOME/Library/Application Support/FSMetrics/settings.json"
+
+# Build Application
 Scripts/bundle.sh
-open build/FSMetrics.app
+ditto build/FSMetrics.app /Applications/FSMetrics.app
+xattr -dr com.apple.quarantine /Applications/FSMetrics.app 2>/dev/null || true
+codesign --verify --verbose /Applications/FSMetrics.app
+
+# Grant Permissions
+open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+# Select "+" then "FSMetrics" Toggle **ON**
+
+# Launch Application
+open /Applications/FSMetrics.app
 ```
 
 ### Demo quick start
