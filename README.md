@@ -18,6 +18,13 @@ admin-facing tooling built for macOS.
 
 ## Dashboard Screenshots
 
+![FSMetrics dashboard — summary tiles, volume status, performance, capacity, and per-user usage](ReadMePhotos/dashboard.png)
+
+Performance charts during a stress test (`Scripts/stress/gen_load.sh`) —
+throughput, IOPS, and average I/O size react to real disk load:
+
+![Throughput, IOPS, and average I/O size charts under load](ReadMePhotos/performance-under-load.png)
+
 ## Build & run
 
 Requires macOS 15+, Xcode and the Swift 6 toolchain from the Command Line Tools.
@@ -153,6 +160,8 @@ per-volume per-user quota (0 disables), stall detection, and alert cooldowns.
 
 Alerts are saved locally and can also post to a webhook and show as
 notifications.
+
+![A per-user growth warning in the dashboard's Recent Alerts](ReadMePhotos/recent-alerts.png)
 
 ## Future work
 
