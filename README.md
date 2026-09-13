@@ -35,7 +35,7 @@ git --version   # git ships with the Command Line Tools
 ```
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/TroyDixon/macOS_FSMetrics.git
 cd macOS_FSMetrics
 
 # Dependencies 
@@ -139,8 +139,13 @@ absolute per-user quota (0 disables), stall detection, and alert cooldowns.
 
 Alerts are saved locally and can also post to a webhook and show as
 notifications.
+
 ## Future work
 
 See `docs/FUTURE_WORK.md`. Highlights: kernel-enforced quotas,
 per-process I/O attribution, multi-host aggregation, retention/rollups,
 wear-level trend lines, deeper pNFS stats, and signed distribution.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).

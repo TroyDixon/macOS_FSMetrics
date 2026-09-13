@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
 # Assemble and ad-hoc sign FSMetrics.app using only the Command Line Tools
-# toolchain (no Xcode, no signing identity). See docs/SWIFT_TRANSLATION_PLAN.md
-# section 14.
+# toolchain (no Xcode, no signing identity).
 set -euo pipefail
 
 CONFIG=release

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
 # Install ~/Library/LaunchAgents/local.fsmetrics.plist so the collector starts
-# at login and is kept alive. Unsigned-safe fallback for SMAppService; see
-# docs/SWIFT_TRANSLATION_PLAN.md section 14.
+# at login and is kept alive. Unsigned-safe fallback for SMAppService.
 set -euo pipefail
 
 LABEL="local.fsmetrics"
