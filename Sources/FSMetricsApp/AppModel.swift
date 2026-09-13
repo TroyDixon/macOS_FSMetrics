@@ -280,49 +280,87 @@ final class AppModel {
         return volumes.first { $0.path == selectedVolume } ?? volumes.first
     }
 
-    /// Capacity summed across the local volumes (APFS containers deduped), so
-    /// the headline describes the host; remote shares are excluded because
-    /// they report the server's filesystem and can double-count local storage.
-    var fleetTotalBytes: Double? {
-        fleetCapacity.totalBytes
+    /// Capacity KPI for the picker's current volume. These deliberately follow
+    /// the selection instead of rolling up the host: "capacity used" is only
+    /// meaningful for the volume being looked at, and a selected NFS share
+    /// must show the server's numbers rather than "/"'s. They reuse the same
+    /// display values as the volume rows (container usage on APFS, own usage
+    /// otherwise) so the header tile and the selected row never disagree.
+    var focusedUsedPct: Double? {
+        focusedVolume?.displayUsedPct
     }
 
-    var fleetUsedBytes: Double? {
-        fleetCapacity.usedBytes
+    var focusedUsedBytes: Double? {
+        focusedVolume?.displayCapacityUsedBytes
     }
 
-    var fleetFreeBytes: Double? {
-        guard let fleetTotalBytes, let fleetUsedBytes else { return nil }
-        return max(0, fleetTotalBytes - fleetUsedBytes)
+    /// Container total on APFS (all volumes share it), the volume's own total
+    /// otherwise.
+    var focusedTotalBytes: Double? {
+        focusedVolume?.containerTotalBytes ?? focusedVolume?.totalBytes
     }
 
-    var fleetUsedPct: Double? {
-        guard let fleetTotalBytes, fleetTotalBytes > 0, let fleetUsedBytes else { return nil }
-        return fleetUsedBytes / fleetTotalBytes * 100
+    var focusedCapacitySeverity: StatusLevel {
+        focusedVolume?.capacitySeverity(thresholds: settings.thresholds) ?? .none
     }
 
-    private var fleetCapacity: CapacityRollupResult {
-        CapacityRollup.fleet(volumes.map { volume in
+    /// Per-volume capacity inputs shared by both rollups. `isNetworkShare`
+    /// classifies NFS and SMB alike, so remote shares stay consistent with the
+    /// badge the volume rows already show.
+    private var volumeCapacityInputs: [CapacityRollupInput] {
+        volumes.map { volume in
             CapacityRollupInput(
                 totalBytes: volume.totalBytes,
                 usedBytes: volume.displayUsedBytes,
                 container: volume.container,
                 containerTotalBytes: volume.containerTotalBytes,
                 containerAvailableBytes: volume.containerAvailableBytes,
-                isRemote: volume.kind == .nfs
+                isRemote: volume.kind.isNetworkShare
             )
-        })
+        }
     }
 
-    /// Volumes counted by the capacity rollup; remote shares are excluded.
+    /// Capacity summed across the host's local volumes (APFS containers
+    /// deduped). Remote shares are excluded because they report the server's
+    /// filesystem and can double-count local storage.
+    private var hostCapacity: CapacityRollupResult {
+        CapacityRollup.fleet(volumeCapacityInputs)
+    }
+
+    /// Capacity across every monitored volume, network shares included.
+    private var allVolumesCapacity: CapacityRollupResult {
+        CapacityRollup.fleet(volumeCapacityInputs, includeRemote: true)
+    }
+
+    /// Free space across the whole fleet, local *and* remote. This tile answers
+    /// "how much room can this host write to", so a selected NFS/SMB share has
+    /// to count; the capacity percentage stays host-only so remote server
+    /// storage cannot double-count local disks.
+    var fleetFreeBytes: Double? {
+        guard let total = allVolumesCapacity.totalBytes,
+              let used = allVolumesCapacity.usedBytes else { return nil }
+        return max(0, total - used)
+    }
+
+    /// Volumes counted by the local capacity rollup; network shares are
+    /// excluded because they belong to the server, not this host.
     var localVolumeCount: Int {
-        volumes.filter { $0.kind != .nfs }.count
+        volumes.filter { !$0.kind.isNetworkShare }.count
     }
 
-    var fleetCapacitySeverity: StatusLevel {
-        guard let fleetUsedPct else { return .none }
-        if fleetUsedPct >= settings.thresholds.capacityPctCrit { return .critical }
-        if fleetUsedPct >= settings.thresholds.capacityPctWarn { return .warning }
+    /// Network shares included in the free-space total.
+    var networkVolumeCount: Int {
+        volumes.filter { $0.kind.isNetworkShare }.count
+    }
+
+    /// Fullness of the local host rollup, used only to flag a nearly-full
+    /// local host on the fleet-wide Free space tile.
+    var hostCapacitySeverity: StatusLevel {
+        guard let total = hostCapacity.totalBytes, total > 0,
+              let used = hostCapacity.usedBytes else { return .none }
+        let usedPct = used / total * 100
+        if usedPct >= settings.thresholds.capacityPctCrit { return .critical }
+        if usedPct >= settings.thresholds.capacityPctWarn { return .warning }
         return .ok
     }
 

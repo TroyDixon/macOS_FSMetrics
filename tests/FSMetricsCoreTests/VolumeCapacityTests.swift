@@ -343,6 +343,45 @@ struct VolumeCapacityTests {
         #expect(result.usedBytes == nil)
     }
 
+    @Test("fleet includes remote volumes when asked")
+    func fleetIncludesRemoteVolumes() {
+        let inputs = [
+            CapacityRollupInput(
+                totalBytes: 1000,
+                usedBytes: 600,
+                container: "disk3",
+                containerTotalBytes: 1000,
+                containerAvailableBytes: 400
+            ),
+            CapacityRollupInput(totalBytes: 100, usedBytes: 25),
+            CapacityRollupInput(totalBytes: 494, usedBytes: 303, isRemote: true),
+            CapacityRollupInput(
+                totalBytes: 500,
+                usedBytes: 400,
+                container: "disk9",
+                containerTotalBytes: 500,
+                containerAvailableBytes: 100,
+                isRemote: true
+            ),
+        ]
+
+        let wholeFleet = CapacityRollup.fleet(inputs, includeRemote: true)
+        #expect(wholeFleet.totalBytes == 2094)
+        #expect(wholeFleet.usedBytes == 1328)
+
+        let localOnly = CapacityRollup.fleet(inputs, includeRemote: false)
+        #expect(localOnly.totalBytes == 1100)
+        #expect(localOnly.usedBytes == 625)
+    }
+
+    @Test("network share kinds are marked remote")
+    func networkShareKinds() {
+        #expect(VolumeKind.nfs.isNetworkShare == true)
+        #expect(VolumeKind.smb.isNetworkShare == true)
+        #expect(VolumeKind.apfs.isNetworkShare == false)
+        #expect(VolumeKind.other.isNetworkShare == false)
+    }
+
     // MARK: - Live system
 
     @Test("the sealed system volume reports its own usage, not its container's")

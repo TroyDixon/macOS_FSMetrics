@@ -16,6 +16,10 @@ public enum VolumeKind: String, Codable, Sendable, CaseIterable {
         default: self = .other
         }
     }
+
+    /// Network shares report a server's filesystem rather than this
+    /// host's storage.
+    public var isNetworkShare: Bool { self == .nfs || self == .smb }
 }
 
 /// A mounted volume discovered on this device.

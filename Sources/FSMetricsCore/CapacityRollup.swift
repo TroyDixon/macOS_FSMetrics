@@ -9,7 +9,9 @@ public struct CapacityRollupInput: Sendable, Equatable {
     public var containerAvailableBytes: Double?
     /// Remote shares (NFS/SMB) report the server's filesystem, which may be
     /// storage a local volume already represents; they keep their own
-    /// per-volume reading but are excluded from the host rollup.
+    /// per-volume reading but are excluded from the host rollup by default.
+    /// Pass `includeRemote: true` to ``CapacityRollup/fleet(_:includeRemote:)``
+    /// for a whole-fleet total, such as the free-space headline.
     public var isRemote: Bool
 
     public init(
@@ -40,10 +42,20 @@ public struct CapacityRollupResult: Sendable, Equatable {
 }
 
 /// Deduplicates shared local APFS capacity while retaining ordinary local
-/// volume totals and excluding remote volumes, which report the server's
-/// filesystem.
+/// volume totals and, by default, excluding remote volumes, which report the
+/// server's filesystem.
 public enum CapacityRollup {
-    public static func fleet(_ inputs: [CapacityRollupInput]) -> CapacityRollupResult {
+    /// Rolls `inputs` into one host-wide total.
+    ///
+    /// Remote shares report the server's filesystem and are excluded from the
+    /// host rollup by default, since that storage may already be represented by
+    /// a local volume. Pass `includeRemote: true` for a whole-fleet total, such
+    /// as the free-space headline; remote inputs then roll in under exactly the
+    /// same container-dedup and nil-skipping rules as local ones.
+    public static func fleet(
+        _ inputs: [CapacityRollupInput],
+        includeRemote: Bool = false
+    ) -> CapacityRollupResult {
         var total = 0.0
         var used = 0.0
         var hasTotal = false
@@ -51,7 +63,7 @@ public enum CapacityRollup {
         var containers: [String: (total: Double?, available: Double?)] = [:]
 
         for input in inputs {
-            if input.isRemote {
+            if input.isRemote && !includeRemote {
                 continue
             }
             if let container = input.container {

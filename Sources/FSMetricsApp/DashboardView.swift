@@ -115,16 +115,19 @@ struct DashboardView: View {
     /// the back of a room, so they get the largest type on the screen.
     private var statStrip: some View {
         LazyVGrid(columns: Self.tileColumns, spacing: 10) {
+            // Scoped to the picker, unlike the fleet-wide Free space tile:
+            // "capacity used" is only meaningful for the volume on screen, so
+            // this follows the selection all the way through severity.
             StatTile(
                 title: "Capacity used",
-                value: MetricsFormat.pct(model.fleetUsedPct),
-                caption: model.fleetUsedBytes.map {
-                    "\(MetricsFormat.bytes($0)) of \(MetricsFormat.bytes(model.fleetTotalBytes))"
+                value: MetricsFormat.pct(model.focusedUsedPct),
+                caption: model.focusedUsedBytes.map {
+                    "\(MetricsFormat.bytes($0)) of \(MetricsFormat.bytes(model.focusedTotalBytes))"
                 } ?? "no capacity sample",
-                level: model.fleetCapacitySeverity,
+                level: model.focusedCapacitySeverity,
                 symbol: "internaldrive",
                 spark: model.capacityPoints,
-                sparkColor: model.fleetCapacitySeverity.color
+                sparkColor: model.focusedCapacitySeverity.color
             )
 
             StatTile(
@@ -152,8 +155,8 @@ struct DashboardView: View {
             StatTile(
                 title: "Free space",
                 value: MetricsFormat.bytes(model.fleetFreeBytes),
-                caption: "across \(model.localVolumeCount) local volume\(model.localVolumeCount == 1 ? "" : "s")",
-                level: model.fleetCapacitySeverity == .critical ? .critical : StatusLevel.none,
+                caption: freeSpaceCaption,
+                level: model.hostCapacitySeverity == .critical ? .critical : StatusLevel.none,
                 symbol: "externaldrive.badge.checkmark",
                 spark: [],
                 sparkColor: .fsPurple
@@ -177,6 +180,21 @@ struct DashboardView: View {
                 spark: []
             )
         }
+    }
+
+    /// Caption for the free-space tile, stating exactly which volumes the
+    /// headline sums so "the fleet" is never ambiguous. Singular "volume" only
+    /// when the counted total is one.
+    private var freeSpaceCaption: String {
+        let local = model.localVolumeCount
+        let shared = model.networkVolumeCount
+        if shared == 0 {
+            return "across \(local) local volume\(local == 1 ? "" : "s")"
+        }
+        if local == 0 {
+            return "across \(shared) shared volume\(shared == 1 ? "" : "s")"
+        }
+        return "across \(local) local + \(shared) shared volume\((local + shared) == 1 ? "" : "s")"
     }
 
     // MARK: Volumes
@@ -342,7 +360,7 @@ struct VolumeRow: View {
                 HStack(spacing: 6) {
                     Text(volume.label)
                         .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                    if volume.kind == .nfs || volume.kind == .smb {
+                    if volume.kind.isNetworkShare {
                         Badge(text: volume.kind.rawValue.uppercased(), level: StatusLevel.none)
                     }
                     if volume.smartOK == false {
