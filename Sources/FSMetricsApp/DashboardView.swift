@@ -152,7 +152,7 @@ struct DashboardView: View {
             StatTile(
                 title: "Free space",
                 value: MetricsFormat.bytes(model.fleetFreeBytes),
-                caption: "across \(model.volumes.count) volume\(model.volumes.count == 1 ? "" : "s")",
+                caption: "across \(model.localVolumeCount) local volume\(model.localVolumeCount == 1 ? "" : "s")",
                 level: model.fleetCapacitySeverity == .critical ? .critical : StatusLevel.none,
                 symbol: "externaldrive.badge.checkmark",
                 spark: [],

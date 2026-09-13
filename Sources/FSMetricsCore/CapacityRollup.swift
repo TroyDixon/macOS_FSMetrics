@@ -7,19 +7,25 @@ public struct CapacityRollupInput: Sendable, Equatable {
     public var container: String?
     public var containerTotalBytes: Double?
     public var containerAvailableBytes: Double?
+    /// Remote shares (NFS/SMB) report the server's filesystem, which may be
+    /// storage a local volume already represents; they keep their own
+    /// per-volume reading but are excluded from the host rollup.
+    public var isRemote: Bool
 
     public init(
         totalBytes: Double?,
         usedBytes: Double?,
         container: String? = nil,
         containerTotalBytes: Double? = nil,
-        containerAvailableBytes: Double? = nil
+        containerAvailableBytes: Double? = nil,
+        isRemote: Bool = false
     ) {
         self.totalBytes = totalBytes
         self.usedBytes = usedBytes
         self.container = container
         self.containerTotalBytes = containerTotalBytes
         self.containerAvailableBytes = containerAvailableBytes
+        self.isRemote = isRemote
     }
 }
 
@@ -33,7 +39,9 @@ public struct CapacityRollupResult: Sendable, Equatable {
     }
 }
 
-/// Deduplicates shared APFS capacity while retaining ordinary volume totals.
+/// Deduplicates shared local APFS capacity while retaining ordinary local
+/// volume totals and excluding remote volumes, which report the server's
+/// filesystem.
 public enum CapacityRollup {
     public static func fleet(_ inputs: [CapacityRollupInput]) -> CapacityRollupResult {
         var total = 0.0
@@ -43,6 +51,9 @@ public enum CapacityRollup {
         var containers: [String: (total: Double?, available: Double?)] = [:]
 
         for input in inputs {
+            if input.isRemote {
+                continue
+            }
             if let container = input.container {
                 let previous = containers[container]
                 containers[container] = (

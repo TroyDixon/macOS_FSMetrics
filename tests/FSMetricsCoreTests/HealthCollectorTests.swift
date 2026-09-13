@@ -20,6 +20,15 @@ private struct DiskInfoThrowingProbe: DiagnosticsProbe {
     func nvmeHealth() throws -> [NVMEHealth] { [] }
 }
 
+/// `diskInfo` throws while `nvmeHealth` succeeds, proving NVMe rows are
+/// excluded whenever the diskInfo probe fails.
+private struct DiskInfoThrowingNVMEProbe: DiagnosticsProbe {
+    var nvme: [NVMEHealth]
+
+    func diskInfo(at path: String) throws -> DiskInfo { throw ProbeFailure() }
+    func nvmeHealth() throws -> [NVMEHealth] { nvme }
+}
+
 @Suite("HealthCollector")
 struct HealthCollectorTests {
     private let host = "mac-mini"
@@ -104,5 +113,70 @@ struct HealthCollectorTests {
             .sample(host: host, now: now)
         #expect(metrics.count == 6)
         #expect(metrics.map(\.kind) == [.smartOK, .writable, .totalBytes, .usedBytes, .freeBytes, .usedPct])
+    }
+
+    @Test("a diskInfo failure with a capacity source degrades to capacity-only metrics")
+    func diskInfoFailureDegradesToCapacityOnly() throws {
+        let probe = DiskInfoThrowingNVMEProbe(nvme: [
+            NVMEHealth(name: "APPLE SSD AP0512Z", smartStatus: "Verified"),
+        ])
+        let capacity = FixtureCapacitySource(reading: VolumeCapacity(
+            totalBytes: 1_000,
+            freeBytes: 250,
+            availableBytes: 200,
+            usedBytes: 750
+        ))
+        let metrics = try HealthCollector(volumePath: volume, probe: probe, capacity: capacity)
+            .sample(host: host, now: now)
+
+        #expect(metrics.map(\.kind) == [.totalBytes, .usedBytes, .freeBytes, .usedPct])
+        let kinds = byKind(metrics)
+        #expect(kinds[.totalBytes]?.value == 1_000)
+        #expect(kinds[.usedBytes]?.value == 750)
+        #expect(kinds[.freeBytes]?.value == 250)
+        #expect(kinds[.usedPct]?.value == 78.95)
+        #expect(kinds[.smartOK] == nil)
+        #expect(kinds[.writable] == nil)
+        #expect(kinds[.nvmeSmartOK] == nil)
+
+        for metric in metrics {
+            #expect(metric.host == host)
+            #expect(metric.volume == volume)
+            #expect(metric.ts == now)
+            #expect(metric.uid == nil)
+        }
+    }
+
+    @Test("a diskInfo failure still emits APFS container capacity")
+    func diskInfoFailureStillEmitsContainerCapacity() throws {
+        let probe = DiskInfoThrowingNVMEProbe(nvme: [
+            NVMEHealth(name: "APPLE SSD AP0512Z", smartStatus: "Verified"),
+        ])
+        let capacity = FixtureCapacitySource(reading: VolumeCapacity(
+            totalBytes: 1_000,
+            freeBytes: 250,
+            availableBytes: 200,
+            usedBytes: 750,
+            container: "disk9"
+        ))
+        let metrics = try HealthCollector(volumePath: volume, probe: probe, capacity: capacity)
+            .sample(host: host, now: now)
+
+        #expect(metrics.map(\.kind) == [
+            .totalBytes, .usedBytes, .freeBytes, .usedPct,
+            .containerTotalBytes, .containerAvailableBytes, .containerUsedPct,
+        ])
+        let kinds = byKind(metrics)
+        #expect(kinds[.totalBytes]?.value == 1_000)
+        #expect(kinds[.usedBytes]?.value == 750)
+        #expect(kinds[.freeBytes]?.value == 250)
+        #expect(kinds[.usedPct]?.value == 78.95)
+        #expect(kinds[.containerTotalBytes]?.value == 1_000)
+        #expect(kinds[.containerTotalBytes]?.username == "disk9")
+        #expect(kinds[.containerAvailableBytes]?.value == 200)
+        #expect(kinds[.containerUsedPct]?.value == 80.0)
+        #expect(kinds[.smartOK] == nil)
+        #expect(kinds[.writable] == nil)
+        #expect(kinds[.nvmeSmartOK] == nil)
     }
 }

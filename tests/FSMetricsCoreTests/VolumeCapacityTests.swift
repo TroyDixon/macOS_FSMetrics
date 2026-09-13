@@ -295,6 +295,54 @@ struct VolumeCapacityTests {
         #expect(result.usedBytes == 425)
     }
 
+    @Test("fleet excludes remote volumes from totals")
+    func fleetExcludesRemoteVolumes() {
+        let inputs = [
+            CapacityRollupInput(
+                totalBytes: 1000,
+                usedBytes: 600,
+                container: "disk3",
+                containerTotalBytes: 1000,
+                containerAvailableBytes: 400
+            ),
+            CapacityRollupInput(totalBytes: 100, usedBytes: 25),
+            CapacityRollupInput(totalBytes: 494, usedBytes: 303, isRemote: true),
+            CapacityRollupInput(
+                totalBytes: 500,
+                usedBytes: 400,
+                container: "disk9",
+                containerTotalBytes: 500,
+                containerAvailableBytes: 100,
+                isRemote: true
+            ),
+        ]
+
+        let result = CapacityRollup.fleet(inputs)
+
+        #expect(result.totalBytes == 1100)
+        #expect(result.usedBytes == 625)
+    }
+
+    @Test("fleet with only remote volumes has no totals")
+    func fleetOnlyRemoteVolumes() {
+        let inputs = [
+            CapacityRollupInput(totalBytes: 494, usedBytes: 303, isRemote: true),
+            CapacityRollupInput(
+                totalBytes: 500,
+                usedBytes: 400,
+                container: "disk9",
+                containerTotalBytes: 500,
+                containerAvailableBytes: 100,
+                isRemote: true
+            ),
+        ]
+
+        let result = CapacityRollup.fleet(inputs)
+
+        #expect(result.totalBytes == nil)
+        #expect(result.usedBytes == nil)
+    }
+
     // MARK: - Live system
 
     @Test("the sealed system volume reports its own usage, not its container's")

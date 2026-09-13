@@ -1,0 +1,12 @@
+/Volumes/FSMetricsNFS from 127.0.0.1:/Library/FSMetricsNFS
+  -- Original mount options:
+     General mount flags: 0x0
+     NFS parameters: vers=3
+     File system locations:
+       /Library/FSMetricsNFS @ 127.0.0.1 (127.0.0.1)
+  -- Current mount parameters:
+     General mount flags: 0x4000000 multilabel
+     NFS parameters: vers=3,tcp,port=2049,nomntudp,hard,nointr,noresvport,negnamecache,callumnt,locks,quota,rsize=32768,wsize=32768,readahead=16,dsize=32768,rdirplus,nodumbtimer,timeo=10,maxgroups=16,acregmin=5,acregmax=60,acdirmin=5,acdirmax=60,acrootdirmin=5,acrootdirmax=60,nomutejukebox,nonfc,sec=sys,accesscache=3
+     File system locations:
+       /Library/FSMetricsNFS @ 127.0.0.1 (127.0.0.1)
+     Status flags: 0x0

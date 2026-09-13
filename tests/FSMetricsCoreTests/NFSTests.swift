@@ -45,6 +45,58 @@ struct NFSTests {
         #expect(scratch.flags == "vers=3,addr=10.20.0.12,rsize=32768,wsize=32768,soft")
     }
 
+    @Test("macOS nfsstat -m format parses the mount point and server")
+    func parseMountsMacOSFixture() throws {
+        let raw = try fixtureData("nfsstat_m_macos", "txt")
+        let tool = NfsstatTool(commands: FixtureCommandRunner(fixtures: [
+            FixtureCommandRunner.key("nfsstat", ["-m"]): raw,
+        ]))
+
+        let mounts = try tool.mounts()
+        #expect(mounts.count == 1)
+
+        let mount = try #require(mounts.first)
+        #expect(mount.mountPoint == "/Volumes/FSMetricsNFS")
+        #expect(mount.server == "127.0.0.1:/Library/FSMetricsNFS")
+        #expect(!mount.pnfs)
+        #expect(mount.flags.contains("vers=3"))
+        // "noresvport" only appears in the live "Current mount parameters"
+        // block, proving the last `NFS parameters:` line was captured.
+        #expect(mount.flags.contains("noresvport"))
+    }
+
+    @Test("a real macOS mount emits pnfs 0 and mount_ok 1")
+    func collectorMacOSFixture() throws {
+        let raw = try fixtureData("nfsstat_m_macos", "txt")
+        let parser = NfsstatTool(commands: FixtureCommandRunner(fixtures: [
+            FixtureCommandRunner.key("nfsstat", ["-m"]): raw,
+        ]))
+        let tool = FixtureNFSTool(mounts: try parser.mounts())
+        let collector = NFSCollector(
+            volumePath: "/Volumes/FSMetricsNFS",
+            mountPoint: "/Volumes/FSMetricsNFS",
+            tool: tool
+        )
+
+        let metrics = try collector.sample(host: host, now: now)
+        #expect(metrics.map(\.kind) == [.pnfsEnabled, .nfsMountOK])
+        #expect(metrics.map(\.value) == [0, 1])
+    }
+
+    @Test("Linux and macOS nfsstat -m formats coexist in one call")
+    func parseMountsMixedFormats() throws {
+        var combined = try fixtureData("nfsstat_m_sample", "txt")
+        combined.append(try fixtureData("nfsstat_m_macos", "txt"))
+        let tool = NfsstatTool(commands: FixtureCommandRunner(fixtures: [
+            FixtureCommandRunner.key("nfsstat", ["-m"]): combined,
+        ]))
+
+        let mounts = try tool.mounts()
+        #expect(mounts.count == 3)
+        #expect(mounts.filter { $0.mountPoint == "/Volumes/FSMetricsNFS" }.count == 1)
+        #expect(mounts.filter { $0.mountPoint == research }.count == 1)
+    }
+
     @Test("client counters parse 'name: value' and 'name value', lowercased")
     func parseClientCounters() throws {
         let raw = "read: 1234\nwrite 567\ntimeout: 3\nretrans: 1\n"

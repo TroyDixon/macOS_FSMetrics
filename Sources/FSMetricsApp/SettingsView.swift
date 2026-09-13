@@ -8,8 +8,13 @@ struct SettingsView: View {
     /// Stable-identity wrapper so volume rows stay correct while editing or
     /// deleting (the core `VolumeSettings` has no identity of its own).
     private struct VolumeDraft: Identifiable {
-        let id = UUID()
+        let id: UUID
         var settings: VolumeSettings
+
+        init(id: UUID = UUID(), settings: VolumeSettings) {
+            self.id = id
+            self.settings = settings
+        }
     }
 
     let model: AppModel
@@ -58,8 +63,8 @@ struct SettingsView: View {
 
     private var volumesSection: some View {
         Section("Volumes") {
-            ForEach($volumeDrafts) { $volume in
-                volumeEditor($volume)
+            ForEach(volumeDrafts) { volume in
+                volumeEditor(volume)
                 Divider()
             }
             Button("Add Volume") {
@@ -128,8 +133,9 @@ struct SettingsView: View {
 
     // MARK: - Rows
 
-    private func volumeEditor(_ volume: Binding<VolumeDraft>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func volumeEditor(_ draft: VolumeDraft) -> some View {
+        let volume = volumeBinding(id: draft.id)
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 TextField("Mount path", text: volume.settings.path)
                 Picker("Kind", selection: volume.settings.kind) {
@@ -140,8 +146,7 @@ struct SettingsView: View {
                 .labelsHidden()
                 .frame(width: 100)
                 Button(role: .destructive) {
-                    let id = volume.wrappedValue.id
-                    volumeDrafts.removeAll { $0.id == id }
+                    volumeDrafts.removeAll { $0.id == draft.id }
                 } label: {
                     Image(systemName: "trash")
                 }
@@ -175,6 +180,23 @@ struct SettingsView: View {
                     .split(separator: ",")
                     .map { $0.trimmingCharacters(in: .whitespaces) }
                     .filter { !$0.isEmpty }
+            }
+        )
+    }
+
+    /// Index-backed row bindings would read past the end of the array when a
+    /// row is deleted while one of its TextFields still holds one. These
+    /// bindings re-resolve the element by stable id on every access, so a
+    /// removed row degrades to a no-op instead of a crash.
+    private func volumeBinding(id: UUID) -> Binding<VolumeDraft> {
+        Binding(
+            get: {
+                volumeDrafts.first { $0.id == id }
+                    ?? VolumeDraft(id: id, settings: VolumeSettings(path: ""))
+            },
+            set: { updated in
+                guard let index = volumeDrafts.firstIndex(where: { $0.id == id }) else { return }
+                volumeDrafts[index] = updated
             }
         )
     }

@@ -280,8 +280,9 @@ final class AppModel {
         return volumes.first { $0.path == selectedVolume } ?? volumes.first
     }
 
-    /// Capacity summed across every monitored volume, so the headline number
-    /// describes the host rather than whichever volume happens to be picked.
+    /// Capacity summed across the local volumes (APFS containers deduped), so
+    /// the headline describes the host; remote shares are excluded because
+    /// they report the server's filesystem and can double-count local storage.
     var fleetTotalBytes: Double? {
         fleetCapacity.totalBytes
     }
@@ -307,9 +308,15 @@ final class AppModel {
                 usedBytes: volume.displayUsedBytes,
                 container: volume.container,
                 containerTotalBytes: volume.containerTotalBytes,
-                containerAvailableBytes: volume.containerAvailableBytes
+                containerAvailableBytes: volume.containerAvailableBytes,
+                isRemote: volume.kind == .nfs
             )
         })
+    }
+
+    /// Volumes counted by the capacity rollup; remote shares are excluded.
+    var localVolumeCount: Int {
+        volumes.filter { $0.kind != .nfs }.count
     }
 
     var fleetCapacitySeverity: StatusLevel {

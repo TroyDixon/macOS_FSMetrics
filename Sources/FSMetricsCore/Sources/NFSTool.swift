@@ -47,10 +47,14 @@ public struct NfsstatTool: NFSTool {
 
     /// Ported from Python `collector/nfs_shared.py::parse_nfsstat_m`.
     ///
-    /// Each block starts with a `server on /mount` header at column zero; the
-    /// first `Flags:` line after the header supplies the flag list. `pnfs`
-    /// anywhere in that list, case-insensitively, marks the mount as pNFS.
-    /// Lines that are neither headers nor flags (lease times, etc.) are ignored.
+    /// Each block starts with a mount header at column zero. Linux prints
+    /// `server:/export on /mount`; macOS prints `/mount from server:/export`.
+    /// The first `Flags:` line after the header supplies the flag list, or,
+    /// absent one (macOS), the last `NFS parameters:` line does: macOS emits
+    /// an "Original mount options" block before the live "Current mount
+    /// parameters" block, so the last value wins. `pnfs` anywhere in that
+    /// list, case-insensitively, marks the mount as pNFS. Lines that are
+    /// neither headers nor flags (lease times, etc.) are ignored.
     static func parseMounts(_ raw: String) -> [NFSMount] {
         var mounts: [NFSMount] = []
         var header: (server: String, mountPoint: String)?
@@ -77,22 +81,30 @@ public struct NfsstatTool: NFSTool {
             } else if header != nil, !flagsCaptured, let range = text.range(of: "Flags:") {
                 flagsCaptured = true
                 flags = String(text[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+            } else if header != nil, !flagsCaptured, let range = text.range(of: "NFS parameters:") {
+                // macOS: no `Flags:` line; the last `NFS parameters:` line is
+                // the live `-- Current mount parameters` value.
+                flags = String(text[range.upperBound...]).trimmingCharacters(in: .whitespaces)
             }
         }
         flush()
         return mounts
     }
 
-    /// Matches Python's header pattern `^\S+ on \S+\s*$`.
+    /// Matches either mount-header orientation: Linux
+    /// `server:/export on /mount` or macOS `/mount from server:/export`.
     private static func mountHeader(in line: String) -> (server: String, mountPoint: String)? {
         guard let first = line.first, !first.isWhitespace else { return nil }
-        let parts = line.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")
-        guard parts.count == 3,
-              parts[1] == "on",
-              !parts[0].isEmpty,
-              !parts[2].isEmpty
-        else { return nil }
-        return (server: parts[0], mountPoint: parts[2])
+        let parts = line.split(separator: " ")
+        guard parts.count == 3 else { return nil }
+        switch parts[1] {
+        case "on":
+            return (server: String(parts[0]), mountPoint: String(parts[2]))
+        case "from":
+            return (server: String(parts[2]), mountPoint: String(parts[0]))
+        default:
+            return nil
+        }
     }
 
     /// Ported from Python `collector/nfs_shared.py::parse_nfsstat_client_counters`:

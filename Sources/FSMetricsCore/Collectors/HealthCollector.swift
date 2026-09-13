@@ -7,8 +7,10 @@ import os
 /// from the injected ``DiagnosticsProbe`` (`diskutil info -plist` in
 /// production); capacity comes from the injected ``CapacitySource`` when one
 /// is given. NVMe controller health is best-effort and never fails the
-/// sample. A `diskInfo` failure is rethrown — the service has an error
-/// boundary per collector.
+/// sample. With a capacity source, a `diskInfo` failure degrades the sample
+/// to capacity-only metrics (no SMART, writable, or NVMe) rather than
+/// discarding an independently measurable reading; without one, the failure
+/// is rethrown — the service has an error boundary per collector.
 public struct HealthCollector: Collector {
     /// `diskutil` SMART strings treated as healthy (Python `_OK_STATUSES`).
     private static let okStatuses: Set<String> = ["Verified", "verified", "OK"]
@@ -31,24 +33,38 @@ public struct HealthCollector: Collector {
     }
 
     public func sample(host: String, now: Date) throws -> [Metric] {
-        let info = try probe.diskInfo(at: volumePath)
+        let info: DiskInfo?
+        do {
+            info = try probe.diskInfo(at: volumePath)
+        } catch {
+            // Capacity is measured independently of the probe (statfs works
+            // on NFS where diskutil has no BSD device), so its presence turns
+            // a probe failure into a capacity-only sample.
+            guard capacity != nil else { throw error }
+            info = nil
+        }
 
-        var metrics = [
-            Metric(
-                kind: .smartOK, host: host, volume: volumePath,
-                value: Self.okStatuses.contains(info.smartStatus) ? 1 : 0, ts: now
-            ),
-            Metric(
-                kind: .writable, host: host, volume: volumePath,
-                value: info.writable ? 1 : 0, ts: now
-            ),
-        ]
+        var metrics: [Metric] = []
+        if let info {
+            metrics += [
+                Metric(
+                    kind: .smartOK, host: host, volume: volumePath,
+                    value: Self.okStatuses.contains(info.smartStatus) ? 1 : 0, ts: now
+                ),
+                Metric(
+                    kind: .writable, host: host, volume: volumePath,
+                    value: info.writable ? 1 : 0, ts: now
+                ),
+            ]
+        }
         metrics += capacityMetrics(info: info, host: host, now: now)
 
         // Best-effort: NVMe controller health (internal Apple Silicon storage
-        // only; network/external volumes have no SPNVMe data). Any probe
-        // failure is silently skipped, mirroring Python's `except: pass`.
-        if let drives = try? probe.nvmeHealth() {
+        // only; network/external volumes have no SPNVMe data). Only consulted
+        // when `diskInfo` succeeded, so a network mount never borrows the
+        // local Mac's NVMe rows. Any probe failure is silently skipped,
+        // mirroring Python's `except: pass`.
+        if info != nil, let drives = try? probe.nvmeHealth() {
             for drive in drives {
                 metrics.append(Metric(
                     kind: .nvmeSmartOK, host: host, volume: volumePath,
@@ -63,8 +79,10 @@ public struct HealthCollector: Collector {
 
     /// Total, used, free, and used % for the volume. When the capacity source
     /// cannot measure the volume honestly, the four metrics are skipped (and
-    /// logged) rather than filled with container-wide numbers.
-    private func capacityMetrics(info: DiskInfo, host: String, now: Date) -> [Metric] {
+    /// logged) rather than filled with container-wide numbers. Without a
+    /// capacity source, `info` supplies the `diskutil` numbers; a missing
+    /// `info` yields nothing.
+    private func capacityMetrics(info: DiskInfo?, host: String, now: Date) -> [Metric] {
         if let capacity {
             do {
                 let volume = try capacity.capacity(at: volumePath)
@@ -98,6 +116,7 @@ public struct HealthCollector: Collector {
             }
         }
 
+        guard let info else { return [] }
         return [
             Metric(kind: .totalBytes, host: host, volume: volumePath, value: Double(info.totalBytes), ts: now),
             Metric(kind: .usedBytes, host: host, volume: volumePath, value: Double(info.usedBytes), ts: now),
