@@ -130,7 +130,8 @@ public struct AlertEngine: Sendable {
                 ts: now
             ))
         }
-        if let writable = try store.latest(of: .writable, volume: volume), writable.value == 0 {
+        if let writable = try store.latest(of: .writable, volume: volume), writable.value == 0,
+           !SystemVolume.isReadOnlyByDesign(path: volume) {
             events.append(AlertEvent(
                 severity: .critical,
                 category: "health",

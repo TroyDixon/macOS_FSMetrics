@@ -124,7 +124,7 @@ detection, and alert cooldowns.
 
 - Capacity warnings when a volume fills past configured levels
 - Per-user growth warnings when someone writes a lot in a short window
-- Drive and mount warnings (SMART failures, read-only volumes, NFS mounts down)
+- Drive and mount warnings (SMART failures, unexpected read-only volumes, NFS mounts down)
 - Stall warnings when I/O samples stop arriving
 - Duplicate alerts are suppressed for a cooldown period
 

@@ -198,7 +198,7 @@ struct DashboardView: View {
                                 CapacityGauge(
                                     label: volume.label,
                                     sublabel: MetricsFormat.bytes(volume.freeBytes) + " free",
-                                    pct: volume.usedPct,
+                                    pct: volume.displayUsedPct,
                                     level: volume.capacitySeverity(thresholds: model.settings.thresholds)
                                 )
                             }
@@ -316,6 +316,22 @@ struct VolumeRow: View {
         volume.capacitySeverity(thresholds: thresholds)
     }
 
+    /// Container usage is the meaningful number on APFS (all volumes share
+    /// the same free space); the volume's own allocation is context.
+    private var capacityDetail: String {
+        let throughput = MetricsFormat.gbps(volume.throughputGbps)
+        if volume.container != nil,
+           let used = volume.displayCapacityUsedBytes,
+           let total = volume.containerTotalBytes ?? volume.totalBytes {
+            var detail = "\(MetricsFormat.bytes(used)) used of \(MetricsFormat.bytes(total)) (container)"
+            if let own = volume.usedBytes {
+                detail += " · \(MetricsFormat.bytes(own)) on this volume"
+            }
+            return "\(detail) · \(throughput)"
+        }
+        return "\(MetricsFormat.bytes(volume.displayUsedBytes)) used of \(MetricsFormat.bytes(volume.totalBytes)) · \(throughput)"
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             Circle()
@@ -336,15 +352,15 @@ struct VolumeRow: View {
                         Badge(text: "READ-ONLY", level: .warning)
                     }
                 }
-                Text("\(MetricsFormat.bytes(volume.displayUsedBytes)) used of \(MetricsFormat.bytes(volume.totalBytes)) · \(MetricsFormat.gbps(volume.throughputGbps))")
+                Text(capacityDetail)
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             }
 
             Spacer(minLength: 10)
 
-            UsedBar(pct: volume.usedPct, level: severity, width: 120)
-            Text(MetricsFormat.pct(volume.usedPct))
+            UsedBar(pct: volume.displayUsedPct, level: severity, width: 120)
+            Text(MetricsFormat.pct(volume.displayUsedPct))
                 .font(.system(size: 11, weight: .medium))
                 .monospacedDigit()
                 .foregroundStyle(severity.color)

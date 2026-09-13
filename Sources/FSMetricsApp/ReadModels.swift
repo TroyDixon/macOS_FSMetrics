@@ -99,10 +99,12 @@ struct VolumeSummary: Identifiable, Sendable, Equatable {
         return .ok
     }
 
-    /// SMART failure or a read-only volume is critical; no health sample at
-    /// all is `none` so absence of data does not mask real data.
+    /// SMART failure or an unexpected read-only volume is critical; the sealed
+    /// boot volume is read-only by design. No health sample at all is `none`
+    /// so absence of data does not mask real data.
     func healthSeverity() -> StatusLevel {
-        if smartOK == false || writable == false { return .critical }
+        if smartOK == false { return .critical }
+        if writable == false, !SystemVolume.isReadOnlyByDesign(path: path) { return .critical }
         if smartOK == nil, writable == nil { return .none }
         return .ok
     }
@@ -113,6 +115,24 @@ struct VolumeSummary: Identifiable, Sendable, Equatable {
         if let usedBytes { return usedBytes }
         guard let usedPct, let totalBytes else { return nil }
         return usedPct / 100 * totalBytes
+    }
+
+    /// Fullness to display for this volume. APFS volumes share their
+    /// container's free space, so the container percentage is the meaningful
+    /// number (and the one severity uses); per-volume `usedPct`, which matches
+    /// `df` but understates APFS usage, otherwise.
+    var displayUsedPct: Double? {
+        containerUsedPct ?? usedPct
+    }
+
+    /// Bytes used to display next to the capacity bar, matching
+    /// ``displayUsedPct``: container-wide usage for APFS (container total
+    /// minus container available), the volume's own usage otherwise.
+    var displayCapacityUsedBytes: Double? {
+        if let containerTotalBytes, let containerAvailableBytes {
+            return max(0, containerTotalBytes - containerAvailableBytes)
+        }
+        return displayUsedBytes
     }
 }
 
@@ -351,13 +371,16 @@ enum DashboardLoader {
         let capacityVolume = resolved(selection.capacityVolume, among: volumeNames)
         var capacityPoints: [ChartPoint] = []
         if let capacityVolume {
-            capacityPoints = try store
-                .series(
-                    of: .usedPct,
-                    volume: capacityVolume,
-                    since: now.addingTimeInterval(-Lookback.capacityHistory)
-                )
-                .map { ChartPoint(ts: $0.ts, value: $0.value) }
+            // APFS volumes share their container, so chart the container's
+            // fullness when it was recorded; fall back to the per-volume
+            // series for older samples and non-APFS filesystems.
+            let since = now.addingTimeInterval(-Lookback.capacityHistory)
+            let containerPoints = try store
+                .series(of: .containerUsedPct, volume: capacityVolume, since: since)
+            let points = containerPoints.isEmpty
+                ? try store.series(of: .usedPct, volume: capacityVolume, since: since)
+                : containerPoints
+            capacityPoints = points.map { ChartPoint(ts: $0.ts, value: $0.value) }
         }
 
         let usersVolume = resolved(selection.usersVolume, among: volumeNames)

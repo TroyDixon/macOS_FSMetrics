@@ -139,18 +139,29 @@ struct AlertEngineTests {
         #expect(event.message.contains("SMART"))
     }
 
-    @Test("health.writable == 0 fires a critical health alert")
+    @Test("health.writable == 0 on a non-boot volume fires a critical health alert")
     func readOnlyVolume() throws {
         let store = InMemoryMetricStore()
-        try store.write([metric(.writable, value: 0)])
+        let readOnly = "/Volumes/Research"
+        try store.write([metric(.writable, volume: readOnly, value: 0)])
 
-        let events = try AlertEngine().evaluate(store: store, host: host, volumes: [volume], now: now)
+        let events = try AlertEngine().evaluate(store: store, host: host, volumes: [readOnly], now: now)
 
         #expect(events.count == 1)
         let event = try #require(events.first)
         #expect(event.severity == .critical)
         #expect(event.category == "health")
         #expect(event.message.contains("not writable"))
+    }
+
+    @Test("read-only boot volume is expected on macOS and does not alert")
+    func readOnlyBootVolume() throws {
+        let store = InMemoryMetricStore()
+        try store.write([metric(.writable, value: 0)])
+
+        let events = try AlertEngine().evaluate(store: store, host: host, volumes: [volume], now: now)
+
+        #expect(events.isEmpty)
     }
 
     @Test("nfs.mount_ok == 0 fires a critical nfs alert")
