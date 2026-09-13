@@ -14,7 +14,7 @@ admin-facing tooling built for macOS.
 - Watches local (APFS) and shared (NFS/pNFS) volumes
 - Shows everything in a menu-bar app with a dashboard
 - Alerts on full volumes, failing drives, and rapid per-user growth
-- Surfaces largest paths, NFS timeouts/retransmits, and stalled I/O
+- Surfaces NFS timeouts/retransmits, and stalled I/O
 
 ## What you get
 
