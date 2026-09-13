@@ -15,7 +15,7 @@ concrete, cited mechanism.
 |---|---|---|---|
 | 1 | FS health + backing block storage health | Integrated (SMART, writable, NVMe ok) | ✅ Extendable with real NVMe SMART (temp, wear, spare, media errors) via a public IOKit user client |
 | 2 | I/O performance GB/s | Integrated (IOKit counters + iostat fallback) | ✅ Read/write split, latency, transfer counts, error counters — all in the same `Statistics` dict we already read |
-| 3 | Capacity + per-user quotas | Integrated (per-UID walk + soft alerts) | ✅ Soft quotas (see README "Why this data model (APFS quotas)"); kernel-enforced quotas are a **platform limitation** (quotactl → `ENOTSUP` on APFS); NFS server-side quotas are protocol-visible but not exposed by macOS userland tools |
+| 3 | Capacity + per-user quotas | Integrated (per-UID walk + soft alerts) | ✅ Soft quotas (see §3A below); kernel-enforced quotas are a **platform limitation** (quotactl → `ENOTSUP` on APFS); NFS server-side quotas are protocol-visible but not exposed by macOS userland tools |
 | 4 | Useful admin display | Integrated (menu bar + dashboard + CLI) | ✅ Panels for every metric below are ordinary SwiftUI work |
 | 5 | Alert/reporting on nefarious users / capacity | Integrated (rules + cooldown + notifiers) | ✅ NFS retransmit/timeout trend + I/O-error rules are integratable; per-process I/O attribution is **platform-limited** to root (`fs_usage`) |
 | 6 | Local APFS + shared NFS/pNFS | Integrated | ✅ APFS snapshots integratable; pNFS layout *operation* counters are already exposed by `nfsstat -f JSON` (new finding); per-layout-type byte stats remain platform-limited |
@@ -33,7 +33,7 @@ Conventions used below: **[SDK]** = header inside
 ## 1. Filesystem + backing block-storage health
 
 Already integrated (`[repo]` `Sources/FSMetricsCore/Collectors/HealthCollector.swift`,
-`Sources/DiagnosticsProbe.swift`): `health.smart_ok` from `diskutil info -plist`
+`Sources/FSMetricsCore/Sources/DiagnosticsProbe.swift`): `health.smart_ok` from `diskutil info -plist`
 `SMARTStatus`, `health.writable`, `health.nvme_smart_ok` from
 `system_profiler SPNVMeDataType -json`, plus the capacity family.
 
@@ -87,7 +87,7 @@ Already integrated (`[repo]` `Sources/FSMetricsCore/Collectors/HealthCollector.s
 `DiskInfo` already parses, and the collectors do not emit, these
 ([SDK]/[tool] `diskutil info -plist /` on this Mac: `DeviceIdentifier`,
 `ParentWholeDisk`, `APFSPhysicalStores`, `FilesystemType`, `Encryption`,
-`RemovableMedia`; [repo] `Sources/DiagnosticsProbe.swift` parses them all):
+`RemovableMedia`; [repo] `Sources/FSMetricsCore/Sources/DiagnosticsProbe.swift` parses them all):
 filesystem type, encrypted state, removable media, device identifiers.
 All are one-line `Metric` additions behind `MetricKind`.
 
@@ -97,7 +97,7 @@ All are one-line `Metric` additions behind `MetricKind`.
 
 Already integrated ([repo] `Collectors/PerformanceCollector.swift` — IOKit
 cumulative `Bytes (Read)+(Write)` diffed over the clock; `iostat -d -c 2`
-fallback; SI GB/s per [repo] README "Units").
+fallback; SI GB/s per the [repo] `PerformanceCollector` doc comment).
 
 ### D. Everything else in the same `Statistics` dict
 
@@ -134,7 +134,7 @@ metrics alongside the existing throughput series).
 
 ## 3. Capacity + per-user quotas
 
-Already integrated ([repo] `CapacityCollector.swift`, per-UID walk, alert
+Already integrated ([repo] `Collectors/CapacityCollector.swift`, per-UID walk, alert
 rules in `Alerts/AlertEngine.swift`).
 
 ### A. Kernel-enforced quotas: **platform limitation**, with primary evidence
@@ -155,10 +155,9 @@ rules in `Alerts/AlertEngine.swift`).
   `165 AUE_QUOTACTL ALL { int quotactl(const char *path, int cmd, int uid, caddr_t arg); }`
   — the syscall exists; `setquota`/`qquota` (148/149) are `nosys`. The
   syscall exists; APFS does not answer it (see the ENOTSUP test).
-- **[repo]** `README.md` "Why this data model (APFS quotas)" already encodes
-  the correct posture: "APFS has no native per-user quota system … enforce
-  **soft, admin-configured thresholds** in the alert engine rather than
-  relying on kernel enforcement."
+- **[repo]** `docs/FUTURE_WORK.md` #1 records the same posture: quotas are
+  **soft, admin-configured thresholds** enforced by the alert engine over
+  per-UID byte totals, not by the kernel.
 - Verdict: requirement 3 is satisfied by per-UID accounting + soft thresholds
   (implemented). Kernel enforcement: platform limitation. NFS server-side
   quotas: NFSv4 defines quota attributes (`NFS_FATTR_QUOTA_AVAIL_HARD` 38,
@@ -177,7 +176,7 @@ throughput, dashboard with Swift Charts throughput/capacity history, per-user
 status`/`export`). Nothing here is platform-blocked; which panels to add is
 a work plan, not a research question. Gaps to build:
 largest-paths panel (the scanner already exists — [repo]
-`Sources/FileScanner.swift::largestPaths`, tested in
+`Sources/FSMetricsCore/Sources/FileScanner.swift::largestPaths`, tested in
 `tests/FSMetricsCoreTests/CapacityCollectorTests.swift`), NVMe SMART panel,
 time-range pickers. All integratable now.
 
@@ -215,8 +214,8 @@ per-user growth, SMART/writable/NFS-down, throughput stall, cooldown;
 
 ## 6. Local APFS + shared NFS/pNFS
 
-Already integrated for mounts/health/flags ([repo] `NFSCollector.swift`,
-`NfsstatTool.swift`). New primary-source findings for depth:
+Already integrated for mounts/health/flags ([repo] `Collectors/NFSCollector.swift`,
+`Sources/NFSTool.swift`). New primary-source findings for depth:
 
 ### F. `nfsstat -f JSON` (machine does this natively)
 
@@ -246,7 +245,7 @@ Already integrated for mounts/health/flags ([repo] `NFSCollector.swift`,
 - So: the kernel speaks pNFS, and userland can see *that it happens* (JSON
   op counters), but no userland tool exposes layout-type *byte* statistics.
   Keep the boolean + add the op-counters; document the rest as the same
-  platform-limitation posture the README takes for APFS quotas.
+  platform-limitation posture §3A takes for APFS quotas.
 
 ### E. APFS snapshots
 
@@ -288,7 +287,7 @@ Already integrated for mounts/health/flags ([repo] `NFSCollector.swift`,
    media, NFS negotiated params (`vers`, `rsize`, `wsize` from the `Flags:`
    line we already parse). Small.
 8. **Largest paths/directories** — scanner exists and is tested; needs a
-   collector + UI panel ([repo] `Sources/FileScanner.swift`). Small.
+   collector + UI panel ([repo] `Sources/FSMetricsCore/Sources/FileScanner.swift`). Small.
 9. **Retention/rollups** — plain SQLite: `INSERT INTO metric_hourly … SELECT
    … GROUP BY` + bounded `DELETE FROM metric WHERE ts < ?` in one transaction
    ([docs] sqlite.org/lang_delete.html — DELETE with WHERE; transactions per
@@ -312,8 +311,8 @@ Already integrated for mounts/health/flags ([repo] `NFSCollector.swift`,
 
 **Yes — all seven requirements can be fully satisfied in this build**, with
 the two honest exceptions above, which are macOS platform limits (not effort
-limits) and are already worded correctly in `README.md` ("Why this data
-model (APFS quotas)") and `docs/FUTURE_WORK.md` #2. Everything else in the
+limits) and are already worded correctly in §3A and `docs/FUTURE_WORK.md`
+#1–2. Everything else in the
 "more the better" bucket is a matter of integration work against APIs that are **public, documented, and
 confirmed present on this machine** — the largest single win being the IOKit
 `IOBlockStorageDriver` statistics table we already read (errors, retries,

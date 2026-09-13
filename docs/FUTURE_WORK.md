@@ -31,26 +31,28 @@ either:
   capacity trending up, since near-full APFS containers measurably slow
   down on some workloads.
 
-## 4. Native macOS client
-The current dashboard is a Flask + Chart.js web app, chosen for demo speed
-and judge accessibility (runs anywhere, zero install beyond Python). A
-production version for this audience (macOS-only AI infra admins) would
-likely be:
-- A SwiftUI menu-bar app that polls the same SQLite store directly (no HTTP
-  hop needed on localhost), with native notification-center alerts instead
-  of/alongside the webhook.
+## 4. Signed distribution
+The native client is done: the Flask + Chart.js dashboard was replaced by the
+SwiftUI menu-bar app and dashboard in `Sources/FSMetricsApp/`, which read the
+SQLite store directly. What remains is distribution:
+- `Scripts/bundle.sh` only ad-hoc signs `FSMetrics.app`. Signing with a
+  Developer ID and notarizing it would let admins install without Gatekeeper
+  overrides. See `docs/REQUIREMENTS_FEASIBILITY.md` §5I for how bundling and
+  signing affect notifications and autostart (today's fallbacks are AppleScript
+  and a LaunchAgent).
 
 ## 5. Retention & rollups
-The `metrics` table currently grows unbounded. At real polling intervals
+The SQLite `metric` table currently grows unbounded. At real polling intervals
 over weeks/months this needs:
 - A rollup job that compacts old high-resolution samples into hourly/daily
   aggregates (min/max/avg), similar to RRDtool or Prometheus's downsampling,
   keeping raw resolution only for a recent window (e.g. 7 days).
 
 ## 6. Per-process I/O attribution
-`performance.collect_fs_usage_sample()` is wired up but off by default
-(requires root, high volume of output). A real deployment would:
-- Run it as a privileged helper, parse it properly (its text format shifts
+Not collected today: `fs_usage` requires root and produces a high volume of
+output, and Endpoint Security needs an Apple-granted entitlement (see
+`docs/REQUIREMENTS_FEASIBILITY.md` §2G). A real deployment would:
+- Run `fs_usage` as a privileged helper, parse it properly (its text format shifts
   across macOS versions), and attribute GB/s to specific processes/users —
   which would make the "nefarious user" story much sharper: not just "this
   user's total grew fast" but "this specific process on this user's session
