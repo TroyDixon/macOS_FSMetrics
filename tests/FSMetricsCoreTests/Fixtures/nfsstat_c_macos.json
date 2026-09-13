@@ -1,0 +1,11 @@
+{
+  "Client Info" : {
+    "RPC Info" : {
+      "Invalid" : 1,
+      "Requests" : 198598,
+      "Retries" : 7,
+      "TimedOut" : 3,
+      "X Replies" : 0
+    }
+  }
+}

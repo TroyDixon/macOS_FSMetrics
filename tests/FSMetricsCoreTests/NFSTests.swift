@@ -111,6 +111,45 @@ struct NFSTests {
         #expect(counters["retrans"] == 1)
     }
 
+    @Test("macOS JSON client counters map TimedOut and Retries onto timeout and retrans")
+    func parseClientCountersJSON() throws {
+        let raw = try fixtureData("nfsstat_c_macos", "json")
+        let tool = NfsstatTool(commands: FixtureCommandRunner(fixtures: [
+            FixtureCommandRunner.key("nfsstat", ["-c", "-f", "JSON"]): raw,
+        ]))
+
+        let counters = try tool.clientCounters()
+        #expect(counters["timeout"] == 3)
+        #expect(counters["retrans"] == 7)
+        #expect(counters["requests"] == 198598)
+    }
+
+    @Test("client counters fall back to text when JSON mode is unavailable")
+    func clientCountersFallsBackWhenJSONModeUnavailable() throws {
+        let raw = "read: 5\ntimeout: 2\nretrans: 4\n"
+        let tool = NfsstatTool(commands: FixtureCommandRunner(fixtures: [
+            FixtureCommandRunner.key("nfsstat", ["-c"]): raw,
+        ]))
+
+        let counters = try tool.clientCounters()
+        #expect(counters["timeout"] == 2)
+        #expect(counters["retrans"] == 4)
+    }
+
+    @Test("a JSON document without RPC Info falls back to text")
+    func clientCountersFallsBackWhenJSONLacksRPCInfo() throws {
+        let json = #"{"Client Info":{"Cache Info":{}}}"#
+        let text = "read: 5\ntimeout: 2\nretrans: 4\n"
+        let tool = NfsstatTool(commands: FixtureCommandRunner(fixtures: [
+            FixtureCommandRunner.key("nfsstat", ["-c", "-f", "JSON"]): json,
+            FixtureCommandRunner.key("nfsstat", ["-c"]): text,
+        ]))
+
+        let counters = try tool.clientCounters()
+        #expect(counters["timeout"] == 2)
+        #expect(counters["retrans"] == 4)
+    }
+
     @Test("matching mount emits pnfs 1 + mount_ok 1 and maps client counters")
     func collectorMatch() throws {
         let mount = NFSMount(

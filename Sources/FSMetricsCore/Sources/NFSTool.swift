@@ -39,6 +39,10 @@ public struct NfsstatTool: NFSTool {
     }
 
     public func clientCounters() throws -> [String: Int] {
+        if let data = try? commands.run("nfsstat", ["-c", "-f", "JSON"]),
+           let counters = Self.parseClientCountersJSON(String(decoding: data, as: UTF8.self)) {
+            return counters
+        }
         let data = try commands.run("nfsstat", ["-c"])
         return Self.parseClientCounters(String(decoding: data, as: UTF8.self))
     }
@@ -118,6 +122,26 @@ public struct NfsstatTool: NFSTool {
             else { continue }
             counters[match.1.lowercased()] = value
         }
+        return counters
+    }
+
+    /// Maps macOS `nfsstat -c -f JSON` client counters onto the keys
+    /// ``NFSCollector`` consumes (`TimedOut` -> `timeout`, `Retries` ->
+    /// `retrans`), plus `requests`/`invalid` for completeness. Returns nil when
+    /// the document has no `Client Info` -> `RPC Info` object, so the caller can
+    /// fall back to the text parser.
+    static func parseClientCountersJSON(_ raw: String) -> [String: Int]? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(raw.utf8)),
+              let root = object as? [String: Any],
+              let client = root["Client Info"] as? [String: Any],
+              let rpc = client["RPC Info"] as? [String: Any]
+        else { return nil }
+
+        var counters: [String: Int] = [:]
+        if let value = rpc["TimedOut"] as? Int { counters["timeout"] = value }
+        if let value = rpc["Retries"] as? Int { counters["retrans"] = value }
+        if let value = rpc["Requests"] as? Int { counters["requests"] = value }
+        if let value = rpc["Invalid"] as? Int { counters["invalid"] = value }
         return counters
     }
 }
