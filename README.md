@@ -20,8 +20,7 @@ admin-facing tooling built for macOS.
 
 ![FSMetrics dashboard — summary tiles, volume status, performance, capacity, and per-user usage](ReadMePhotos/dashboard.png)
 
-Performance charts during a stress test (`Scripts/stress/gen_load.sh`) —
-throughput, IOPS, and average I/O size react to real disk load:
+Performance charts under load — throughput, IOPS, and average I/O size:
 
 ![Throughput, IOPS, and average I/O size charts under load](ReadMePhotos/performance-under-load.png)
 
