@@ -40,6 +40,33 @@ Scripts/bundle.sh
 open build/FSMetrics.app
 ```
 
+### Demo quick start
+
+`Scripts/demo.sh` wraps the above into a two-command demo flow. It installs
+the app to `/Applications`, seeds chart history, and — critically — gets Full
+Disk Access granted *before* the first collection cycle, so the Documents /
+Desktop / Downloads / Pictures permission popups never appear.
+
+```bash
+# Once, before the demo (a few minutes: release build + 8 seeded cycles):
+Scripts/demo.sh --setup
+
+# ...grant Full Disk Access when the pane opens and setup pauses, then:
+
+# On demo day (<1s, never rebuilds — rebuilding would revoke the grant):
+Scripts/demo.sh
+```
+
+After `--setup` pauses, add `/Applications/FSMetrics.app` in the opened Full
+Disk Access pane (Cmd+Shift+G to type the path) and toggle it on; with
+`--with-agent`, also add
+`/Applications/FSMetrics.app/Contents/Resources/fsmetrics`. `--verify`
+confirms per-user metrics are flowing.
+
+Useful flags: `--seed N` (collection cycles used to seed chart history),
+`--with-agent` (also install the LaunchAgent), and `--reset-settings`
+(restore `config.example.json` defaults, backing up the previous settings).
+
 ## Using the app
 
 The app lives in the menu bar (no Dock icon, no window at launch).

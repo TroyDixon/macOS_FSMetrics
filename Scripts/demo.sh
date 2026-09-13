@@ -48,6 +48,15 @@ installed_bundle_id() {
 }
 
 run_collect() {
+    # The UI app may be collecting concurrently; SQLite briefly reports the
+    # database as locked, so retry a few times before giving up.
+    local attempt
+    for attempt in 1 2 3; do
+        if "$BUNDLED_CLI" collect --once >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 3
+    done
     "$BUNDLED_CLI" collect --once >/dev/null
 }
 
@@ -96,14 +105,9 @@ do_setup() {
         Scripts/install-agent.sh
     fi
 
-    echo "==> Seeding chart history ($SEED_RUNS cycles, ${SEED_GAP}s apart)"
-    local i
-    for i in $(seq 1 "$SEED_RUNS"); do
-        run_collect
-        echo "    cycle $i/$SEED_RUNS"
-        [[ "$i" -eq "$SEED_RUNS" ]] || sleep "$SEED_GAP"
-    done
-
+    # Full Disk Access must be granted BEFORE any collection cycle: the default
+    # config walks /Users, and the first walk without the grant is exactly what
+    # triggers the Documents/Desktop/Downloads/Pictures permission popups.
     echo "==> Opening Full Disk Access settings"
     open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" || true
 
@@ -123,9 +127,19 @@ do_setup() {
     affected collectors degrade gracefully: per-user usage and SMART rows are
     simply missing.
 
-    Then confirm the grant took effect:
-      Scripts/demo.sh --verify
+    Setup pauses here. Grant access, then press Return to continue with
+    chart-history seeding and verification.
 INSTRUCTIONS
+
+    read -p "==> Press Return once Full Disk Access is granted... "
+
+    echo "==> Seeding chart history ($SEED_RUNS cycles, ${SEED_GAP}s apart)"
+    local i
+    for i in $(seq 1 "$SEED_RUNS"); do
+        run_collect
+        echo "    cycle $i/$SEED_RUNS"
+        [[ "$i" -eq "$SEED_RUNS" ]] || sleep "$SEED_GAP"
+    done
 
     do_verify
 }
@@ -140,8 +154,9 @@ do_verify() {
     if [[ "$count" -gt 0 ]]; then
         echo "==> OK: $count per-user samples in the database — Full Disk Access is working"
     else
-        echo "==> No per-user samples yet. If you have not granted Full Disk Access"
-        echo "    yet, do so (see the --setup instructions), then re-run:"
+        echo "==> No per-user samples yet. Grant Full Disk Access in"
+        echo "    System Settings → Privacy & Security → Full Disk Access"
+        echo "    (the pane --setup opens) to /Applications/FSMetrics.app, then re-run:"
         echo "    Scripts/demo.sh --verify"
     fi
 }
