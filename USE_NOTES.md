@@ -5,6 +5,7 @@ Write ≥5 GB into a scanned path (`/Users`), then collect — this fires the
 
 ```bash
 dd if=/dev/zero of="$HOME/demo-growth.bin" bs=1m count=6144
+```
 
 After:
 ```bash
