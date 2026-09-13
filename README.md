@@ -127,6 +127,7 @@ detection, and alert cooldowns.
 - Drive and mount warnings (SMART failures, unexpected read-only volumes, NFS mounts down)
 - Stall warnings when I/O samples stop arriving
 - Duplicate alerts are suppressed for a cooldown period
+- Each alert row has a **View activity** button that reveals the relevant folder (a user's home for growth alerts, the volume otherwise) in Finder
 
 Alerts are saved locally and can also post to a webhook and show as
 notifications.

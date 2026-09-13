@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import FSMetricsCore
 import Observation
@@ -45,6 +46,7 @@ final class AppModel {
     @ObservationIgnored nonisolated(unsafe) private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var refreshGeneration = 0
     private let clock = SystemClock()
+    private let activityLocations = ActivityLocationResolver()
 
     private static let log = Logger(subsystem: "local.fsmetrics", category: "app")
     private static let refreshInterval: TimeInterval = 5
@@ -140,6 +142,19 @@ final class AppModel {
             Self.log.error("alert deletion failed: \(error, privacy: .public)")
         }
         await refresh()
+    }
+
+    /// Finder directory for an alert's activity, or nil when nothing exists to
+    /// reveal.
+    func activityDirectory(for alert: AlertRow) -> String? {
+        activityLocations.directory(category: alert.category, uid: alert.uid, volume: alert.volume)
+    }
+
+    /// Opens the alert's activity directory in Finder. No-op when resolution
+    /// finds nothing.
+    func revealActivity(for alert: AlertRow) {
+        guard let path = activityDirectory(for: alert) else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
     /// Reloads the read models from the store on a background task.

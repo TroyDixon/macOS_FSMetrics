@@ -47,9 +47,12 @@ struct AlertsPanel: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(model.alerts) { alert in
-                        AlertRowView(alert: alert) {
-                            Task { await model.deleteAlert(alert) }
-                        }
+                        AlertRowView(
+                            alert: alert,
+                            activityPath: model.activityDirectory(for: alert),
+                            onViewActivity: { model.revealActivity(for: alert) },
+                            onDismiss: { Task { await model.deleteAlert(alert) } }
+                        )
                         if alert.id != model.alerts.last?.id {
                             Divider().overlay(Color.fsPanelBorder)
                         }
@@ -62,6 +65,10 @@ struct AlertsPanel: View {
 
 struct AlertRowView: View {
     let alert: AlertRow
+
+    /// Directory to reveal when the user clicks View activity; nil hides the button.
+    var activityPath: String?
+    var onViewActivity: () -> Void = {}
     var onDismiss: () -> Void = {}
 
     private var level: StatusLevel {
@@ -97,6 +104,20 @@ struct AlertRowView: View {
             }
 
             Spacer(minLength: 8)
+
+            if let activityPath {
+                Button(action: onViewActivity) {
+                    Label("View activity", systemImage: "folder")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color.fsAccent)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.fsAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Reveal \(activityPath) in Finder")
+            }
 
             Text(MetricsFormat.time(alert.ts))
                 .font(.system(size: 10))
