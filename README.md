@@ -8,31 +8,24 @@ admin-facing tooling built for macOS.
 
 ## What it does
 
-- Checks filesystem and drive health (capacity, writability, SMART / NVMe status)
+- Checks filesystem and drive health
 - Measures I/O performance in GB/s
 - Tracks capacity and per-user storage usage
 - Watches local (APFS) and shared (NFS/pNFS) volumes
-- Shows everything in a menu-bar app with a dashboard
+- Shows every analytic with charts/bars in the dashboard
 - Alerts on full volumes, failing drives, and rapid per-user growth
 - Surfaces NFS timeouts/retransmits, and stalled I/O
 
-## What you get
-
-- A menu-bar app with a dashboard (charts, volume cards, per-user table, recent alerts)
-- A CLI for collecting, checking status, and exporting (`collect`, `status`, `export`)
-- A shared store both front ends read and write
+## Dashboard Screenshots
 
 ## Build & run
 
-Requires macOS 15+ and the Swift 6 toolchain from the Command Line Tools.
-The first build fetches dependencies, so it needs network access.
-
-### Prereqs
-
+Requires macOS 15+, Xcode and the Swift 6 toolchain from the Command Line Tools.
 ```bash
+# With Xcode installed
 xcode-select --install
-git --version   # git ships with the Command Line Tools
 ```
+The first build fetches dependencies, so it needs network access.
 
 ```bash
 git clone https://github.com/TroyDixon/macOS_FSMetrics.git
