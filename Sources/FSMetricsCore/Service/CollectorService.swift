@@ -64,10 +64,17 @@ public actor CollectorService {
         }
 
         let volumes = alertVolumes()
+        // Per-volume quotas; a discovered volume that is not in the settings
+        // simply has no entry and is therefore unrestricted.
+        let userQuotas = Dictionary(
+            settings.volumes.map { ($0.path, $0.userQuotaBytes) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let events = try engine.evaluate(
             store: store,
             host: settings.hostLabel,
             volumes: volumes,
+            userQuotas: userQuotas,
             now: now
         )
         for event in events {

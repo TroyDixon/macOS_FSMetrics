@@ -96,11 +96,6 @@ struct SettingsView: View {
                 format: .number
             )
             TextField(
-                "User quota (bytes, 0 = off)",
-                value: $draft.thresholds.userQuotaBytes,
-                format: .number
-            )
-            TextField(
                 "Throughput stall (seconds)",
                 value: $draft.thresholds.throughputStallSeconds,
                 format: .number
@@ -160,6 +155,11 @@ struct SettingsView: View {
             }
             TextField("Label", text: volume.settings.label)
             Toggle("Watch users", isOn: volume.settings.watchUsers)
+            TextField(
+                "User quota (bytes, 0 = off)",
+                value: volume.settings.userQuotaBytes,
+                format: .number
+            )
             TextField("Scan paths (comma separated)", text: scanPathsBinding(volume))
         }
         .padding(.vertical, 4)

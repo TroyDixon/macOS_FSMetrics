@@ -120,18 +120,19 @@ entry for it once the mount exists:
   "kind": "nfs",
   "label": "Research (NFS/pNFS)",
   "watch_users": true,
+  "user_quota_bytes": 0,
   "scan_paths": ["/Volumes/Research"]
 }
 ```
 
-You can set capacity warn/critical levels, per-user growth limits, an
-absolute per-user quota (0 disables), stall detection, and alert cooldowns.
+You can set capacity warn/critical levels, per-user growth limits, a
+per-volume per-user quota (0 disables), stall detection, and alert cooldowns.
 
 ## Alerts
 
 - Capacity warnings when a volume fills past configured levels
 - Per-user growth warnings when someone writes a lot in a short window
-- Per-user quota warnings when a user's total crosses the configured byte limit (`user_quota_bytes`, 0 disables the rule)
+- Per-user quota warnings when a user's total crosses a volume's configured limit (`user_quota_bytes`, 0 disables the rule)
 - Drive and mount warnings (SMART failures, unexpected read-only volumes, NFS mounts down)
 - Stall warnings when I/O samples stop arriving
 - Duplicate alerts are suppressed for a cooldown period

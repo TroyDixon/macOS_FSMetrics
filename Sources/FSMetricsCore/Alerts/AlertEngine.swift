@@ -16,10 +16,14 @@ public struct AlertEngine: Sendable {
         self.thresholds = thresholds
     }
 
+    /// Evaluate every rule for each volume and return the events not already
+    /// cooling down. `userQuotas` maps a volume path to that volume's per-user
+    /// byte cap; volumes missing from the map are unrestricted.
     public func evaluate(
         store: any MetricQuery,
         host: String,
         volumes: [String],
+        userQuotas: [String: Double] = [:],
         now: Date
     ) throws -> [AlertEvent] {
         var events: [AlertEvent] = []
@@ -27,7 +31,9 @@ public struct AlertEngine: Sendable {
         for volume in volumes {
             events.append(contentsOf: try capacityEvents(store: store, host: host, volume: volume, now: now))
             events.append(contentsOf: try userGrowthEvents(store: store, host: host, volume: volume, now: now))
-            events.append(contentsOf: try userQuotaEvents(store: store, host: host, volume: volume, now: now))
+            events.append(contentsOf: try userQuotaEvents(
+                store: store, host: host, volume: volume, quota: userQuotas[volume] ?? 0, now: now
+            ))
             events.append(contentsOf: try healthEvents(store: store, host: host, volume: volume, now: now))
             events.append(contentsOf: try stallEvents(store: store, host: host, volume: volume, now: now))
         }
@@ -118,13 +124,13 @@ public struct AlertEngine: Sendable {
     }
 
     /// Fires one warning per uid whose newest `capacity.user_bytes` sample is at
-    /// or above `thresholds.userQuotaBytes` (0 disables). A quota is current
-    /// state, so the freshness floor is wider than the growth window: an admin
-    /// with a slow capacity scan interval would otherwise never see it.
+    /// or above this volume's `quota` (0 disables). A quota is current state, so
+    /// the freshness floor is wider than the growth window: an admin with a slow
+    /// capacity scan interval would otherwise never see it.
     private func userQuotaEvents(
-        store: any MetricQuery, host: String, volume: String, now: Date
+        store: any MetricQuery, host: String, volume: String, quota: Double, now: Date
     ) throws -> [AlertEvent] {
-        guard thresholds.userQuotaBytes > 0 else { return [] }
+        guard quota > 0 else { return [] }
         let since = now.addingTimeInterval(-max(thresholds.userGrowthWindow, 3600))
         let samples = try store.series(of: .userBytes, volume: volume, since: since)
         var latestByUID: [String: Sample] = [:]
@@ -135,7 +141,7 @@ public struct AlertEngine: Sendable {
         }
         var events: [AlertEvent] = []
         for (uid, sample) in latestByUID {
-            guard sample.value >= thresholds.userQuotaBytes else { continue }
+            guard sample.value >= quota else { continue }
             let username = sample.username ?? uid
             events.append(AlertEvent(
                 severity: .warning,
@@ -143,7 +149,7 @@ public struct AlertEngine: Sendable {
                 message: String(
                     format: "user '%@' is using %@ on %@ (per-user quota %@)",
                     username, Self.byteDescription(sample.value), volume,
-                    Self.byteDescription(thresholds.userQuotaBytes)
+                    Self.byteDescription(quota)
                 ),
                 host: host,
                 volume: volume,

@@ -4,9 +4,10 @@ import Testing
 import FSMetricsCore
 
 /// Pure-outcome tests for ``AlertEngine`` at the
-/// `evaluate(store:host:volumes:now:)` seam, porting `tests/test_alerts.py`
-/// plus the stall and cooldown rules. The engine never writes: tests persist
-/// returned events themselves, exactly as ``CollectorService`` does.
+/// `evaluate(store:host:volumes:userQuotas:now:)` seam, porting
+/// `tests/test_alerts.py` plus the stall and cooldown rules. The engine never
+/// writes: tests persist returned events themselves, exactly as
+/// ``CollectorService`` does.
 @Suite("AlertEngine")
 struct AlertEngineTests {
     private let host = "mac-mini"
@@ -129,9 +130,12 @@ struct AlertEngineTests {
     func userQuotaAtOrAbove() throws {
         let store = InMemoryMetricStore()
         try store.write([metric(.userBytes, value: 6e9, uid: "501", username: "alice")])
-        let engine = AlertEngine(thresholds: AlertThresholds(userQuotaBytes: 5e9))
+        let engine = AlertEngine()
 
-        let events = try engine.evaluate(store: store, host: host, volumes: [volume], now: now)
+        let events = try engine.evaluate(
+            store: store, host: host, volumes: [volume],
+            userQuotas: [volume: 5e9], now: now
+        )
 
         #expect(events.count == 1)
         let event = try #require(events.first)
@@ -148,9 +152,12 @@ struct AlertEngineTests {
     func userQuotaBelow() throws {
         let store = InMemoryMetricStore()
         try store.write([metric(.userBytes, value: 4e9, uid: "501", username: "alice")])
-        let engine = AlertEngine(thresholds: AlertThresholds(userQuotaBytes: 5e9))
+        let engine = AlertEngine()
 
-        let events = try engine.evaluate(store: store, host: host, volumes: [volume], now: now)
+        let events = try engine.evaluate(
+            store: store, host: host, volumes: [volume],
+            userQuotas: [volume: 5e9], now: now
+        )
         #expect(events.isEmpty)
     }
 
@@ -158,9 +165,12 @@ struct AlertEngineTests {
     func userQuotaDisabled() throws {
         let store = InMemoryMetricStore()
         try store.write([metric(.userBytes, value: 100e9, uid: "501", username: "alice")])
-        let engine = AlertEngine(thresholds: AlertThresholds())
+        let engine = AlertEngine()
 
-        let events = try engine.evaluate(store: store, host: host, volumes: [volume], now: now)
+        let events = try engine.evaluate(
+            store: store, host: host, volumes: [volume],
+            userQuotas: [volume: 0], now: now
+        )
         #expect(events.isEmpty)
     }
 
@@ -181,9 +191,12 @@ struct AlertEngineTests {
             ),
             metric(.userBytes, value: 7e9, uid: "502", username: "bob", ts: now),
         ])
-        let engine = AlertEngine(thresholds: AlertThresholds(userQuotaBytes: 5e9))
+        let engine = AlertEngine()
 
-        let events = try engine.evaluate(store: store, host: host, volumes: [volume], now: now)
+        let events = try engine.evaluate(
+            store: store, host: host, volumes: [volume],
+            userQuotas: [volume: 5e9], now: now
+        )
 
         #expect(events.count == 1)
         #expect(events.first?.uid == "502")
@@ -193,14 +206,48 @@ struct AlertEngineTests {
     func userQuotaSubGBFormatting() throws {
         let store = InMemoryMetricStore()
         try store.write([metric(.userBytes, value: 6e6, uid: "501", username: "bob")])
-        let engine = AlertEngine(thresholds: AlertThresholds(userQuotaBytes: 5e6))
+        let engine = AlertEngine()
 
-        let events = try engine.evaluate(store: store, host: host, volumes: [volume], now: now)
+        let events = try engine.evaluate(
+            store: store, host: host, volumes: [volume],
+            userQuotas: [volume: 5e6], now: now
+        )
 
         #expect(events.count == 1)
         let event = try #require(events.first)
         #expect(event.message.contains("6.0 MB"))
         #expect(event.message.contains("5.0 MB"))
+    }
+
+    @Test("a quota is scoped to its own volume")
+    func userQuotaScopedToVolume() throws {
+        let store = InMemoryMetricStore()
+        let sampleNFS = "/Volumes/SampleNFS"
+        try store.write([
+            metric(.userBytes, value: 6e9, uid: "501", username: "alice"),
+            metric(.userBytes, volume: sampleNFS, value: 6e9, uid: "501", username: "alice"),
+        ])
+        let engine = AlertEngine()
+
+        let events = try engine.evaluate(
+            store: store, host: host, volumes: [volume, sampleNFS],
+            userQuotas: [volume: 5e9], now: now
+        )
+
+        #expect(events.count == 1)
+        #expect(events.first?.volume == volume)
+    }
+
+    @Test("a volume with no configured quota is unrestricted")
+    func userQuotaUnconfiguredVolume() throws {
+        let store = InMemoryMetricStore()
+        try store.write([metric(.userBytes, value: 100e9, uid: "501", username: "alice")])
+
+        let events = try AlertEngine().evaluate(
+            store: store, host: host, volumes: [volume], userQuotas: [:], now: now
+        )
+
+        #expect(events.isEmpty)
     }
 
     // MARK: - Health

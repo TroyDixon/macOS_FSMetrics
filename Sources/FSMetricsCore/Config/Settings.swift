@@ -10,9 +10,6 @@ public struct AlertThresholds: Codable, Sendable, Equatable {
     public var userGrowthWindow: TimeInterval
     /// Growth (bytes) within the window that trips the user-growth alert.
     public var userGrowthThreshold: Double
-    /// Absolute per-user cap; a user's newest `capacity.user_bytes` at or
-    /// above this fires a `user_quota` alert. 0 disables the rule.
-    public var userQuotaBytes: Double
     /// Retained for parity with the Python config; not yet used by a rule.
     public var ioErrorCountThreshold: Int
     /// No throughput sample within this window means stalled.
@@ -26,7 +23,6 @@ public struct AlertThresholds: Codable, Sendable, Equatable {
         capacityPctCrit: Double = 95,
         userGrowthWindow: TimeInterval = 600,
         userGrowthThreshold: Double = 5e9,
-        userQuotaBytes: Double = 0,
         ioErrorCountThreshold: Int = 1,
         throughputStallSeconds: TimeInterval = 120,
         cooldown: TimeInterval = 3600
@@ -35,7 +31,6 @@ public struct AlertThresholds: Codable, Sendable, Equatable {
         self.capacityPctCrit = capacityPctCrit
         self.userGrowthWindow = userGrowthWindow
         self.userGrowthThreshold = userGrowthThreshold
-        self.userQuotaBytes = userQuotaBytes
         self.ioErrorCountThreshold = ioErrorCountThreshold
         self.throughputStallSeconds = throughputStallSeconds
         self.cooldown = cooldown
@@ -46,22 +41,9 @@ public struct AlertThresholds: Codable, Sendable, Equatable {
         case capacityPctCrit = "capacity_pct_crit"
         case userGrowthWindow = "user_growth_bytes_window"
         case userGrowthThreshold = "user_growth_bytes_threshold"
-        case userQuotaBytes = "user_quota_bytes"
         case ioErrorCountThreshold = "io_error_count_threshold"
         case throughputStallSeconds = "throughput_stall_seconds"
         case cooldown
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.capacityPctWarn = try c.decode(Double.self, forKey: .capacityPctWarn)
-        self.capacityPctCrit = try c.decode(Double.self, forKey: .capacityPctCrit)
-        self.userGrowthWindow = try c.decode(TimeInterval.self, forKey: .userGrowthWindow)
-        self.userGrowthThreshold = try c.decode(Double.self, forKey: .userGrowthThreshold)
-        self.userQuotaBytes = try c.decodeIfPresent(Double.self, forKey: .userQuotaBytes) ?? 0
-        self.ioErrorCountThreshold = try c.decode(Int.self, forKey: .ioErrorCountThreshold)
-        self.throughputStallSeconds = try c.decode(TimeInterval.self, forKey: .throughputStallSeconds)
-        self.cooldown = try c.decode(TimeInterval.self, forKey: .cooldown)
     }
 }
 
@@ -72,6 +54,10 @@ public struct VolumeSettings: Codable, Sendable, Equatable {
     public var kind: VolumeKind
     public var label: String
     public var watchUsers: Bool
+    /// Per-volume absolute per-user cap: a user's newest `capacity.user_bytes`
+    /// at or above this fires a `user_quota` alert for this volume only. 0
+    /// disables it.
+    public var userQuotaBytes: Double
     public var scanPaths: [String]
 
     public init(
@@ -79,12 +65,14 @@ public struct VolumeSettings: Codable, Sendable, Equatable {
         kind: VolumeKind = .other,
         label: String? = nil,
         watchUsers: Bool = true,
+        userQuotaBytes: Double = 0,
         scanPaths: [String]? = nil
     ) {
         self.path = path
         self.kind = kind
         self.label = label?.isEmpty == false ? label! : path
         self.watchUsers = watchUsers
+        self.userQuotaBytes = userQuotaBytes
         self.scanPaths = (scanPaths?.isEmpty == false) ? scanPaths! : [path]
     }
 
@@ -93,6 +81,7 @@ public struct VolumeSettings: Codable, Sendable, Equatable {
         case kind
         case label
         case watchUsers = "watch_users"
+        case userQuotaBytes = "user_quota_bytes"
         case scanPaths = "scan_paths"
     }
 
@@ -104,6 +93,7 @@ public struct VolumeSettings: Codable, Sendable, Equatable {
             kind: try c.decodeIfPresent(VolumeKind.self, forKey: .kind) ?? .other,
             label: try c.decodeIfPresent(String.self, forKey: .label),
             watchUsers: try c.decodeIfPresent(Bool.self, forKey: .watchUsers) ?? true,
+            userQuotaBytes: try c.decodeIfPresent(Double.self, forKey: .userQuotaBytes) ?? 0,
             scanPaths: try c.decodeIfPresent([String].self, forKey: .scanPaths)
         )
     }
