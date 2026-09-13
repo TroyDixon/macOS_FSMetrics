@@ -44,7 +44,6 @@ cd macOS_FSMetrics
 
 # Dependencies 
 swift build
-swift test
 
 # Set starter config 
 mkdir -p "$HOME/Library/Application Support/FSMetrics"
