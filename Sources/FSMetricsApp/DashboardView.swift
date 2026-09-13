@@ -54,7 +54,7 @@ struct DashboardView: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 1) {
-                Text("macOS FS Metrics")
+                Text("macOS_FSMetrics")
                     .font(.system(size: 17, weight: .semibold))
                 Text(model.settings.hostLabel)
                     .font(.system(size: 11))

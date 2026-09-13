@@ -35,7 +35,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleName</key><string>FSMetrics</string>
-  <key>CFBundleDisplayName</key><string>macOS FS Metrics</string>
+  <key>CFBundleDisplayName</key><string>macOS_FSMetrics</string>
   <key>CFBundleIdentifier</key><string>local.fsmetrics</string>
   <key>CFBundleExecutable</key><string>FSMetrics</string>
   <key>CFBundlePackageType</key><string>APPL</string>

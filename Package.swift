@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "FSMetrics",
+    name: "macOS_FSMetrics",
     platforms: [.macOS("15.0")],
     products: [
         .library(name: "FSMetricsCore", targets: ["FSMetricsCore"]),

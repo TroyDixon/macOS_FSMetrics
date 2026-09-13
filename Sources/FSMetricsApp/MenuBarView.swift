@@ -56,7 +56,7 @@ struct MenuBarView: View {
             Image(systemName: model.worstSeverity.symbolName)
                 .foregroundStyle(model.worstSeverity.color)
             VStack(alignment: .leading, spacing: 1) {
-                Text("macOS FS Metrics").font(.headline)
+                Text("macOS_FSMetrics").font(.headline)
                 Text(model.settings.hostLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)

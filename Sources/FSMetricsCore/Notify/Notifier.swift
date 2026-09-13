@@ -40,7 +40,7 @@ public struct AppleScriptNotifier: Notifier {
     private let runner: any CommandRunning
     private static let log = Logger(subsystem: "local.fsmetrics", category: "notify")
 
-    public init(title: String = "macOS FS Metrics", runner: any CommandRunning = ProcessCommandRunner()) {
+    public init(title: String = "macOS_FSMetrics", runner: any CommandRunning = ProcessCommandRunner()) {
         self.title = title
         self.runner = runner
     }
@@ -108,7 +108,7 @@ public struct UserNotificationNotifier: Notifier {
         guard Bundle.main.bundleIdentifier != nil else { return }
         let center = UNUserNotificationCenter.current()
         let content = UNMutableNotificationContent()
-        content.title = "macOS FS Metrics"
+        content.title = "macOS_FSMetrics"
         content.body = event.message
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,

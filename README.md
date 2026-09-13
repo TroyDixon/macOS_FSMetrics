@@ -1,4 +1,4 @@
-# macOS AI File System Metrics
+# macOS_FSMetrics
 
 **TTU HackWesTex 2026 — Developer Challenge submission**
 
@@ -69,7 +69,7 @@ needs network access.
 
 ```bash
 git clone <this-repo>
-cd macos-fs-metrics
+cd macOS_FSMetrics
 
 swift build
 swift test
