@@ -80,6 +80,13 @@ Useful flags: `--seed N` (collection cycles used to seed chart history),
 `--with-agent` (also install the LaunchAgent), and `--reset-settings`
 (restore `config.example.json` defaults, backing up the previous settings).
 
+### Demo video
+
+[![FSMetrics demo — dashboard, NFS volume, per-user quotas, and alerts](docs/demo/demo-poster.jpg)](docs/demo/demo.mp4)
+
+Two minutes end to end: the menu-bar app and dashboard, a monitored NFS share,
+per-volume per-user quotas, and the alert workflow with **View activity**.
+
 ## Using the app
 
 The app lives in the menu bar (no Dock icon, no window at launch).
