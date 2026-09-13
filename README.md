@@ -27,6 +27,13 @@ admin-facing tooling built for macOS.
 Requires macOS 15+ and the Swift 6 toolchain from the Command Line Tools.
 The first build fetches dependencies, so it needs network access.
 
+### Prereqs
+
+```bash
+xcode-select --install
+git --version   # git ships with the Command Line Tools
+```
+
 ```bash
 git clone <this-repo>
 cd macOS_FSMetrics
