@@ -25,7 +25,7 @@ Performance charts under load — throughput, IOPS, and average I/O size:
 ![Throughput, IOPS, and average I/O size charts under load](ReadMePhotos/performance-under-load.png)
 
 Animated walkthrough — dashboard, NFS volume, per-user quotas, and the alert
-workflow with **View activity** ([full 2-minute video](docs/demo/demo.mp4)):
+workflow with **View activity**:
 
 ![FSMetrics demo — dashboard, NFS volume, per-user quotas, and alerts](docs/demo/demo.gif)
 
@@ -65,7 +65,8 @@ open /Applications/FSMetrics.app
 
 ## Using the app
 
-The app lives in the menu bar (no Dock icon, no window at launch).
+The app lives in the menu bar (no Dock icon, no window at launch). See
+[`docs/OPERATING.md`](docs/OPERATING.md) for the day-to-day rundown.
 
 - **Status** — icon shows worst current severity and latest throughput
 - **Open Dashboard** — throughput and capacity charts, volume cards, per-user usage, recent alerts
@@ -97,9 +98,9 @@ notifications.
 
 ## Future work
 
-See `docs/FUTURE_WORK.md`. Highlights: kernel-enforced quotas,
-per-process I/O attribution, multi-host aggregation, retention/rollups,
-wear-level trend lines, deeper pNFS stats, and signed distribution.
+See `docs/FUTURE_WORK.md`. Highlights: fleet-scale deployment, first-class
+support for local model/OpenClaw workloads, retention and rollups,
+per-process I/O attribution, and trend-based health.
 
 ## License
 
