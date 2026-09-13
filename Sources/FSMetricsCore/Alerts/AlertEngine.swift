@@ -27,6 +27,7 @@ public struct AlertEngine: Sendable {
         for volume in volumes {
             events.append(contentsOf: try capacityEvents(store: store, host: host, volume: volume, now: now))
             events.append(contentsOf: try userGrowthEvents(store: store, host: host, volume: volume, now: now))
+            events.append(contentsOf: try userQuotaEvents(store: store, host: host, volume: volume, now: now))
             events.append(contentsOf: try healthEvents(store: store, host: host, volume: volume, now: now))
             events.append(contentsOf: try stallEvents(store: store, host: host, volume: volume, now: now))
         }
@@ -106,6 +107,43 @@ public struct AlertEngine: Sendable {
                 message: String(
                     format: "user '%@' grew usage by %.2f GB in the last %.0fs on %@",
                     username, gb, thresholds.userGrowthWindow, volume
+                ),
+                host: host,
+                volume: volume,
+                uid: uid,
+                ts: now
+            ))
+        }
+        return events
+    }
+
+    /// Fires one warning per uid whose newest `capacity.user_bytes` sample is at
+    /// or above `thresholds.userQuotaBytes` (0 disables). A quota is current
+    /// state, so the freshness floor is wider than the growth window: an admin
+    /// with a slow capacity scan interval would otherwise never see it.
+    private func userQuotaEvents(
+        store: any MetricQuery, host: String, volume: String, now: Date
+    ) throws -> [AlertEvent] {
+        guard thresholds.userQuotaBytes > 0 else { return [] }
+        let since = now.addingTimeInterval(-max(thresholds.userGrowthWindow, 3600))
+        let samples = try store.series(of: .userBytes, volume: volume, since: since)
+        var latestByUID: [String: Sample] = [:]
+        for sample in samples {
+            guard let uid = sample.uid else { continue }
+            if let existing = latestByUID[uid], existing.ts > sample.ts { continue }
+            latestByUID[uid] = sample
+        }
+        var events: [AlertEvent] = []
+        for (uid, sample) in latestByUID {
+            guard sample.value >= thresholds.userQuotaBytes else { continue }
+            let username = sample.username ?? uid
+            events.append(AlertEvent(
+                severity: .warning,
+                category: "user_quota",
+                message: String(
+                    format: "user '%@' is using %@ on %@ (per-user quota %@)",
+                    username, Self.byteDescription(sample.value), volume,
+                    Self.byteDescription(thresholds.userQuotaBytes)
                 ),
                 host: host,
                 volume: volume,
@@ -199,5 +237,14 @@ public struct AlertEngine: Sendable {
 
     private static func plain(_ value: Double) -> String {
         String(value)
+    }
+
+    /// Adaptive SI byte size: TB/GB/MB/KB, plain bytes below 1 KB.
+    private static func byteDescription(_ bytes: Double) -> String {
+        if bytes >= 1e12 { return String(format: "%.1f TB", bytes / 1e12) }
+        if bytes >= 1e9 { return String(format: "%.2f GB", bytes / 1e9) }
+        if bytes >= 1e6 { return String(format: "%.1f MB", bytes / 1e6) }
+        if bytes >= 1e3 { return String(format: "%.1f KB", bytes / 1e3) }
+        return String(format: "%.0f B", bytes)
     }
 }

@@ -123,6 +123,86 @@ struct AlertEngineTests {
         #expect(events.isEmpty)
     }
 
+    // MARK: - Per-user quota
+
+    @Test("a user at or above the quota fires one user_quota warning")
+    func userQuotaAtOrAbove() throws {
+        let store = InMemoryMetricStore()
+        try store.write([metric(.userBytes, value: 6e9, uid: "501", username: "alice")])
+        let engine = AlertEngine(thresholds: AlertThresholds(userQuotaBytes: 5e9))
+
+        let events = try engine.evaluate(store: store, host: host, volumes: [volume], now: now)
+
+        #expect(events.count == 1)
+        let event = try #require(events.first)
+        #expect(event.severity == .warning)
+        #expect(event.category == "user_quota")
+        #expect(event.volume == volume)
+        #expect(event.uid == "501")
+        #expect(event.message.contains("alice"))
+        #expect(event.message.contains("quota"))
+        #expect(event.ts == now)
+    }
+
+    @Test("a user below the quota is silent")
+    func userQuotaBelow() throws {
+        let store = InMemoryMetricStore()
+        try store.write([metric(.userBytes, value: 4e9, uid: "501", username: "alice")])
+        let engine = AlertEngine(thresholds: AlertThresholds(userQuotaBytes: 5e9))
+
+        let events = try engine.evaluate(store: store, host: host, volumes: [volume], now: now)
+        #expect(events.isEmpty)
+    }
+
+    @Test("quota 0 disables the rule")
+    func userQuotaDisabled() throws {
+        let store = InMemoryMetricStore()
+        try store.write([metric(.userBytes, value: 100e9, uid: "501", username: "alice")])
+        let engine = AlertEngine(thresholds: AlertThresholds())
+
+        let events = try engine.evaluate(store: store, host: host, volumes: [volume], now: now)
+        #expect(events.isEmpty)
+    }
+
+    @Test("the newest per-uid sample is compared, not the largest")
+    func userQuotaUsesNewest() throws {
+        let store = InMemoryMetricStore()
+        try store.write([
+            // uid 501 peaked earlier but is under the quota now: silent.
+            metric(
+                .userBytes, value: 6e9, uid: "501", username: "alice",
+                ts: now.addingTimeInterval(-300)
+            ),
+            metric(.userBytes, value: 4e9, uid: "501", username: "alice", ts: now),
+            // uid 502 was under the quota earlier and is over it now: fires.
+            metric(
+                .userBytes, value: 3e9, uid: "502", username: "bob",
+                ts: now.addingTimeInterval(-300)
+            ),
+            metric(.userBytes, value: 7e9, uid: "502", username: "bob", ts: now),
+        ])
+        let engine = AlertEngine(thresholds: AlertThresholds(userQuotaBytes: 5e9))
+
+        let events = try engine.evaluate(store: store, host: host, volumes: [volume], now: now)
+
+        #expect(events.count == 1)
+        #expect(events.first?.uid == "502")
+    }
+
+    @Test("a sub-GB quota is formatted in MB")
+    func userQuotaSubGBFormatting() throws {
+        let store = InMemoryMetricStore()
+        try store.write([metric(.userBytes, value: 6e6, uid: "501", username: "bob")])
+        let engine = AlertEngine(thresholds: AlertThresholds(userQuotaBytes: 5e6))
+
+        let events = try engine.evaluate(store: store, host: host, volumes: [volume], now: now)
+
+        #expect(events.count == 1)
+        let event = try #require(events.first)
+        #expect(event.message.contains("6.0 MB"))
+        #expect(event.message.contains("5.0 MB"))
+    }
+
     // MARK: - Health
 
     @Test("health.smart_ok == 0 fires a critical health alert")

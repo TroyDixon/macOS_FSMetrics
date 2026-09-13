@@ -19,6 +19,7 @@
     "capacity_pct_crit": 95.0,
     "user_growth_bytes_window": 600,
     "user_growth_bytes_threshold": 5000000000,
+    "user_quota_bytes": 0,
     "io_error_count_threshold": 1,
     "throughput_stall_seconds": 120,
     "cooldown": 3600
