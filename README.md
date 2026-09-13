@@ -241,6 +241,14 @@ Native APIs first; CLI probes only where macOS exposes no clean API:
 pNFS layout-type statistics are not available to userland on macOS; the
 collector reports the pNFS flag and client counters only.
 
+`health.writable` on the root volume (`/`) is derived from `diskutil`'s
+`WritableVolume` field, but on every supported macOS version (Catalina+) `/`
+is the Signed System Volume and is *intentionally* mounted read-only; the
+writable, user-data-bearing companion is always the same well-known path,
+`/System/Volumes/Data`. `HealthCollector` cross-checks that companion only
+when the root itself reads not-writable, so `health.writable` reflects the
+volume's real writability rather than the OS's read-only system snapshot.
+
 ## Alerting logic ("nefarious users" + capacity)
 
 `AlertEngine` runs after every poll cycle and is pure (`evaluate` returns

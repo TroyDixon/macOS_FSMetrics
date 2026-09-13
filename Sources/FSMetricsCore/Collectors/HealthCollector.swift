@@ -12,6 +12,7 @@ import os
 public struct HealthCollector: Collector {
     /// `diskutil` SMART strings treated as healthy (Python `_OK_STATUSES`).
     private static let okStatuses: Set<String> = ["Verified", "verified", "OK"]
+    private static let sealedSystemDataVolume = "/System/Volumes/Data"
 
     private static let log = Logger(subsystem: "local.fsmetrics", category: "health")
 
@@ -40,7 +41,7 @@ public struct HealthCollector: Collector {
             ),
             Metric(
                 kind: .writable, host: host, volume: volumePath,
-                value: info.writable ? 1 : 0, ts: now
+                value: effectiveWritable(info: info) ? 1 : 0, ts: now
             ),
         ]
         metrics += capacityMetrics(info: info, host: host, now: now)
@@ -59,6 +60,19 @@ public struct HealthCollector: Collector {
         }
 
         return metrics
+    }
+
+    /// `/` is the Signed System Volume since macOS Catalina and is *intentionally*
+    /// mounted read-only; the writable companion for the boot volume group is
+    /// always surfaced at the well-known, Apple-stable path
+    /// `/System/Volumes/Data`. Only consulted when the root itself reads
+    /// not-writable, so a genuinely writable volume costs no extra probe call.
+    private func effectiveWritable(info: DiskInfo) -> Bool {
+        guard volumePath == "/", !info.writable else { return info.writable }
+        guard let companion = try? probe.diskInfo(at: Self.sealedSystemDataVolume) else {
+            return info.writable // fall back to the conservative original reading
+        }
+        return companion.writable
     }
 
     /// Total, used, free, and used % for the volume. When the capacity source

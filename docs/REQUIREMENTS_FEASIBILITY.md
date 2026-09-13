@@ -34,7 +34,9 @@ Conventions used below: **[SDK]** = header inside
 
 Already integrated (`[repo]` `Sources/FSMetricsCore/Collectors/HealthCollector.swift`,
 `Sources/DiagnosticsProbe.swift`): `health.smart_ok` from `diskutil info -plist`
-`SMARTStatus`, `health.writable`, `health.nvme_smart_ok` from
+`SMARTStatus`, `health.writable` (cross-checked against the SSV's writable
+companion `/System/Volumes/Data` when the boot root `/` itself reads
+not-writable), `health.nvme_smart_ok` from
 `system_profiler SPNVMeDataType -json`, plus the capacity family.
 
 ### B. Real NVMe SMART is available through a **public IOKit user client**

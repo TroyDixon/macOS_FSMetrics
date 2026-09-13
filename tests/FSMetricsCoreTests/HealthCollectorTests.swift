@@ -20,6 +20,33 @@ private struct DiskInfoThrowingProbe: DiagnosticsProbe {
     func nvmeHealth() throws -> [NVMEHealth] { [] }
 }
 
+/// Test-local ``DiagnosticsProbe`` that serves a different ``DiskInfo`` per
+/// queried path and records every path queried (in order), so a test can
+/// assert whether the SSV writable-companion cross-check fired at all.
+private final class PathRoutedProbe: DiagnosticsProbe, @unchecked Sendable {
+    private let responses: [String: DiskInfo]
+    private let lock = NSLock()
+    private var queriedPaths: [String] = []
+
+    init(responses: [String: DiskInfo]) { self.responses = responses }
+
+    var queried: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return queriedPaths
+    }
+
+    func diskInfo(at path: String) throws -> DiskInfo {
+        lock.lock()
+        queriedPaths.append(path)
+        lock.unlock()
+        guard let info = responses[path] else { throw ProbeFailure() }
+        return info
+    }
+
+    func nvmeHealth() throws -> [NVMEHealth] { [] }
+}
+
 @Suite("HealthCollector")
 struct HealthCollectorTests {
     private let host = "mac-mini"
@@ -87,6 +114,75 @@ struct HealthCollectorTests {
         let metrics = try HealthCollector(volumePath: volume, probe: probe)
             .sample(host: host, now: now)
         #expect(byKind(metrics)[.usedPct]?.value == 0)
+    }
+
+    @Test("SSV root uses its writable Data companion")
+    func ssvRootFlipsToWritableViaCompanion() throws {
+        let probe = PathRoutedProbe(responses: [
+            "/": DiskInfo(writable: false),
+            "/System/Volumes/Data": DiskInfo(writable: true),
+        ])
+
+        let metrics = try HealthCollector(volumePath: "/", probe: probe)
+            .sample(host: host, now: now)
+
+        #expect(byKind(metrics)[.writable]?.value == 1)
+        #expect(byKind(metrics)[.writable]?.volume == "/")
+        #expect(probe.queried == ["/", "/System/Volumes/Data"])
+    }
+
+    @Test("root stays not writable when its Data companion is not writable")
+    func genuinelyBrokenRootStaysNotWritable() throws {
+        let probe = PathRoutedProbe(responses: [
+            "/": DiskInfo(writable: false),
+            "/System/Volumes/Data": DiskInfo(writable: false),
+        ])
+
+        let metrics = try HealthCollector(volumePath: "/", probe: probe)
+            .sample(host: host, now: now)
+
+        #expect(byKind(metrics)[.writable]?.value == 0)
+        #expect(probe.queried == ["/", "/System/Volumes/Data"])
+    }
+
+    @Test("writable root skips the Data companion query")
+    func writableRootSkipsCompanionQuery() throws {
+        let probe = PathRoutedProbe(responses: [
+            "/": DiskInfo(writable: true),
+        ])
+
+        let metrics = try HealthCollector(volumePath: "/", probe: probe)
+            .sample(host: host, now: now)
+
+        #expect(byKind(metrics)[.writable]?.value == 1)
+        #expect(probe.queried == ["/"])
+    }
+
+    @Test("non-root volume never uses the SSV Data companion")
+    func nonRootVolumeNeverConsultsCompanion() throws {
+        let path = "/Volumes/Data"
+        let probe = PathRoutedProbe(responses: [
+            path: DiskInfo(writable: false),
+        ])
+
+        let metrics = try HealthCollector(volumePath: path, probe: probe)
+            .sample(host: host, now: now)
+
+        #expect(byKind(metrics)[.writable]?.value == 0)
+        #expect(probe.queried == [path])
+    }
+
+    @Test("failed Data companion probe preserves the root reading")
+    func companionProbeFailureFallsBackConservatively() throws {
+        let probe = PathRoutedProbe(responses: [
+            "/": DiskInfo(writable: false),
+        ])
+
+        let metrics = try HealthCollector(volumePath: "/", probe: probe)
+            .sample(host: host, now: now)
+
+        #expect(byKind(metrics)[.writable]?.value == 0)
+        #expect(probe.queried == ["/", "/System/Volumes/Data"])
     }
 
     @Test("diskInfo failures rethrow; nvme failures degrade to the six core metrics")
