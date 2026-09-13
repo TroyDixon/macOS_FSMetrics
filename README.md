@@ -25,6 +25,11 @@ throughput, IOPS, and average I/O size react to real disk load:
 
 ![Throughput, IOPS, and average I/O size charts under load](ReadMePhotos/performance-under-load.png)
 
+Animated walkthrough — dashboard, NFS volume, per-user quotas, and the alert
+workflow with **View activity** ([full 2-minute video](docs/demo/demo.mp4)):
+
+![FSMetrics demo — dashboard, NFS volume, per-user quotas, and alerts](docs/demo/demo.gif)
+
 ## Build & run
 
 Requires macOS 15+, Xcode and the Swift 6 toolchain from the Command Line Tools.
