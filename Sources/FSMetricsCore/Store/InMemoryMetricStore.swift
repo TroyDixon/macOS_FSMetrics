@@ -25,6 +25,27 @@ public final class InMemoryMetricStore: MetricStore, @unchecked Sendable {
         alerts.append(alert)
     }
 
+    // MARK: - Deletion
+
+    public func deleteAlert(_ alert: AlertEvent) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        alerts.removeAll { existing in
+            existing.ts == alert.ts
+                && existing.host == alert.host
+                && existing.volume == alert.volume
+                && existing.category == alert.category
+                && existing.message == alert.message
+                && existing.uid == alert.uid
+        }
+    }
+
+    public func deleteAllAlerts() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        alerts.removeAll()
+    }
+
     // MARK: - MetricQuery
 
     public func latest(of kind: MetricKind, volume: String, uid: String?) throws -> Sample? {

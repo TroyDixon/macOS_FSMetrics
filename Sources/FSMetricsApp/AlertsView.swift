@@ -23,6 +23,15 @@ struct AlertsPanel: View {
                 if warningCount > 0 {
                     Badge(text: "\(warningCount) warning", level: .warning)
                 }
+                if !model.alerts.isEmpty {
+                    Button("Clear") {
+                        Task { await model.deleteAllAlerts() }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .help("Remove all alerts")
+                }
             }
         }) {
             if model.alerts.isEmpty {
@@ -38,7 +47,9 @@ struct AlertsPanel: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(model.alerts) { alert in
-                        AlertRowView(alert: alert)
+                        AlertRowView(alert: alert) {
+                            Task { await model.deleteAlert(alert) }
+                        }
                         if alert.id != model.alerts.last?.id {
                             Divider().overlay(Color.fsPanelBorder)
                         }
@@ -51,6 +62,7 @@ struct AlertsPanel: View {
 
 struct AlertRowView: View {
     let alert: AlertRow
+    var onDismiss: () -> Void = {}
 
     private var level: StatusLevel {
         alert.severity == .critical ? .critical : .warning
@@ -91,6 +103,16 @@ struct AlertRowView: View {
                 .monospacedDigit()
                 .foregroundStyle(.tertiary)
                 .frame(width: 78, alignment: .trailing)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Remove this alert")
         }
         .padding(.vertical, 8)
         .textSelection(.enabled)

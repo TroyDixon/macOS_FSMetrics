@@ -105,6 +105,43 @@ final class AppModel {
         await refresh()
     }
 
+    /// Removes one alert from the store and refreshes the read models.
+    func deleteAlert(_ alert: AlertRow) async {
+        guard let store else { return }
+        let event = AlertEvent(
+            severity: alert.severity,
+            category: alert.category,
+            message: alert.message,
+            host: alert.host,
+            volume: alert.volume,
+            uid: alert.uid,
+            ts: alert.ts
+        )
+        do {
+            try await Task.detached(priority: .utility) {
+                try store.deleteAlert(event)
+            }.value
+        } catch {
+            lastError = "Could not remove alert: \(error.localizedDescription)"
+            Self.log.error("alert deletion failed: \(error, privacy: .public)")
+        }
+        await refresh()
+    }
+
+    /// Removes every alert from the store and refreshes the read models.
+    func deleteAllAlerts() async {
+        guard let store else { return }
+        do {
+            try await Task.detached(priority: .utility) {
+                try store.deleteAllAlerts()
+            }.value
+        } catch {
+            lastError = "Could not clear alerts: \(error.localizedDescription)"
+            Self.log.error("alert deletion failed: \(error, privacy: .public)")
+        }
+        await refresh()
+    }
+
     /// Reloads the read models from the store on a background task.
     func refresh() async {
         guard let store else { return }

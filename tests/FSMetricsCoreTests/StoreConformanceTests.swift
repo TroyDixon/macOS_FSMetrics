@@ -186,6 +186,41 @@ struct StoreConformanceTests {
         }
     }
 
+    // MARK: - Alert deletion
+
+    @Test("deleteAlert removes only the matching alert, nil uid included",
+          arguments: StoreKind.allCases)
+    func deleteAlert(kind: StoreKind) throws {
+        try withStore(kind) { store in
+            let nilUID = alert(message: "nil-uid", ts: 1_000)
+            let withUID = alert(
+                severity: .critical, category: "health", message: "with-uid",
+                uid: "501", ts: 2_000
+            )
+            try store.write(nilUID)
+            try store.write(withUID)
+            try store.write(alert(message: "other-volume", volume: "vol2", ts: 3_000))
+
+            try store.deleteAlert(nilUID)
+            try store.deleteAlert(withUID)
+
+            let remaining = try store.recentAlerts(limit: 10)
+            #expect(remaining.map(\.message) == ["other-volume"])
+        }
+    }
+
+    @Test("deleteAllAlerts removes every alert", arguments: StoreKind.allCases)
+    func deleteAllAlerts(kind: StoreKind) throws {
+        try withStore(kind) { store in
+            try store.write(alert(message: "one", ts: 1_000))
+            try store.write(alert(message: "two", ts: 2_000))
+
+            try store.deleteAllAlerts()
+
+            #expect(try store.recentAlerts(limit: 10).isEmpty)
+        }
+    }
+
     // MARK: - MetricSink
 
     @Test("writing an empty metric batch is a no-op", arguments: StoreKind.allCases)

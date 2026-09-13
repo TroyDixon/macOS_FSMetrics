@@ -17,7 +17,14 @@ public protocol MetricQuery: Sendable {
 
 /// The full store seam. Adapters: `SQLiteMetricStore` (production) and
 /// `InMemoryMetricStore` (tests). Both must pass `StoreConformanceTests`.
-public protocol MetricStore: MetricSink, MetricQuery {}
+public protocol MetricStore: MetricSink, MetricQuery {
+    /// Removes one alert, matched by its identifying fields. Used by the
+    /// dashboard's per-row dismiss action.
+    func deleteAlert(_ alert: AlertEvent) throws
+
+    /// Removes every stored alert. Used by the dashboard's clear action.
+    func deleteAllAlerts() throws
+}
 
 public extension MetricQuery {
     /// Convenience for the common case of a host-scoped, user-less metric.

@@ -154,6 +154,7 @@ struct UserUsage: Identifiable, Sendable, Equatable {
 struct AlertRow: Identifiable, Sendable, Equatable {
     var ts: Date
     var severity: AlertEvent.Severity
+    var host: String
     var volume: String
     var category: String
     var message: String
@@ -443,6 +444,7 @@ enum DashboardLoader {
             AlertRow(
                 ts: event.ts,
                 severity: event.severity,
+                host: event.host,
                 volume: event.volume,
                 category: event.category,
                 message: event.message,

@@ -140,6 +140,31 @@ public final class SQLiteMetricStore: MetricStore, Sendable {
         }
     }
 
+    /// Deletes alerts matching the row's identifying fields. `uid IS ?` so a
+    /// nil uid matches the NULL column instead of comparing false.
+    public func deleteAlert(_ alert: AlertEvent) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                DELETE FROM alert
+                WHERE ts = ? AND host = ? AND volume = ? AND category = ? AND message = ?
+                  AND uid IS ?
+                """, arguments: [
+                alert.ts.timeIntervalSince1970,
+                alert.host,
+                alert.volume,
+                alert.category,
+                alert.message,
+                alert.uid,
+            ])
+        }
+    }
+
+    public func deleteAllAlerts() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM alert")
+        }
+    }
+
     // MARK: - MetricQuery
 
     public func latest(of kind: MetricKind, volume: String, uid: String?) throws -> Sample? {
