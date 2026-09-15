@@ -35,6 +35,8 @@ We aggregate by volume and user today. `fs_usage` can attribute writes to a
 specific process, but it needs root (Endpoint Security needs an Apple
 entitlement), so this would come with a small privileged helper.
 
+IOKit integration, remodel
+
 ## Trend-based health
 `health.smart_ok` is a snapshot. Tracking NVMe wear-leveling and
 percentage-used-reserve over time would let us warn on trend before SMART
